@@ -118,4 +118,16 @@ describe('panel settings', () => {
 		await sleep(20)
 		expect(settingLines(panel.commands)).toEqual([])
 	})
+
+	test('a config or brightness change after close sends nothing to the panel', async () => {
+		const { surface, panel } = await openSurface({ ...defaults, linkBrightness: true }, 50)
+		await surface.close()
+		panel.clearReceived()
+
+		await surface.updateConfig!({ sleepTimer: 300000, linkBrightness: true })
+		await surface.setBrightness(100)
+		await sleep(20)
+
+		expect(settingLines(panel.received)).toEqual([])
+	})
 })

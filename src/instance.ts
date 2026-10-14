@@ -94,6 +94,7 @@ export class RawPanelSurface implements SurfaceInstance {
 	}
 
 	async updateConfig(config: Record<string, any>): Promise<void> {
+		if (this.#closed) return
 		this.#settings = parsePanelSettings(config)
 		// Diffed per command, so only a changed setting goes out
 		this.#link.write(settingCommands(this.#settings, this.#brightness))
@@ -106,6 +107,7 @@ export class RawPanelSurface implements SurfaceInstance {
 	}
 
 	async setBrightness(percent: number): Promise<void> {
+		if (this.#closed) return
 		this.#brightness = percent
 		// Only when the user linked the panel's brightness to Companion's
 		if (this.#settings.linkBrightness) this.#link.write(settingCommands(this.#settings, percent))
