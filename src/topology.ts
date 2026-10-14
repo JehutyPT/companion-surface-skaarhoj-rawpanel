@@ -44,6 +44,8 @@ export interface LayoutControl {
 	controlId: string
 	hwc: number
 	kind: Exclude<ControlKind, 'analog' | 'none' | 'unknown'>
+	/** The control has an LED (its topology `out` is set); controls without one get no LED commands */
+	hasLed: boolean
 	hasDisplay: boolean
 	row: number
 	column: number
@@ -56,7 +58,10 @@ export interface PanelLayout {
 	signature: string
 }
 
+/** Style presets by feedback: `default` is colour only (an LED, no display). */
 export const DISPLAY_STYLE_PRESET = 'display'
+export const TEXT_STYLE_PRESET = 'text'
+export const NO_FEEDBACK_STYLE_PRESET = 'none'
 
 const BUTTON_CODES = new Set(['b', 'b2h', 'b2v', 'b4'])
 const ANALOG_CODES = new Set(['av', 'ah', 'ar', 'iv', 'ih', 'ir'])
@@ -153,40 +158,38 @@ export function parseTopology(json: string): Topology {
 	return { controls }
 }
 
-function median(values: number[]): number {
-	if (values.length === 0) return 0
-	const sorted = [...values].sort((a, b) => a - b)
-	return sorted[Math.floor(sorted.length / 2)]
-}
+/** Size assumed, in 1/10 mm, for a control the topology gives no size for. */
+const DEFAULT_SIZE = 100
 
 /**
- * Rank-quantise coordinates: sort the distinct values, start a new bucket whenever a value is
- * more than `tolerance` past the first value of the current bucket, and return each value's
- * bucket index.
+ * Group positions on one axis into ranks. Each item has a centre and a size along the axis. Items
+ * are taken in order of centre; an item joins the current group when its centre lies within half
+ * the larger of its own size and the size of the group's first item (equivalently, their extents
+ * overlap by at least half the smaller size), otherwise it starts a new group. Comparing with the
+ * group's first item, not the previous one, keeps a staggered run from merging into one group.
+ * Returns each item's group index, in input order.
  */
-function quantise(values: number[], tolerance: number): Map<number, number> {
-	const sorted = [...new Set(values)].sort((a, b) => a - b)
-	const result = new Map<number, number>()
-	let bucket = -1
-	let bucketStart = -Infinity
-	for (const value of sorted) {
-		if (value - bucketStart > tolerance) {
-			bucket++
-			bucketStart = value
+function rank(items: { centre: number; size: number }[]): number[] {
+	const order = items.map((_, i) => i).sort((a, b) => items[a].centre - items[b].centre)
+	const result = new Array<number>(items.length)
+	let group = -1
+	let anchor: { centre: number; size: number } | undefined
+	for (const i of order) {
+		const item = items[i]
+		if (!anchor || item.centre - anchor.centre > Math.max(item.size, anchor.size) / 2) {
+			group++
+			anchor = item
 		}
-		result.set(value, bucket)
+		result[i] = group
 	}
 	return result
 }
 
-/** Fallback merge tolerance, in 1/10 mm, when the topology gives no control sizes. */
-const DEFAULT_TOLERANCE = 50
-
 /**
  * Build the Companion layout from the topology. Buttons and encoders become controls; analog,
  * input-less and unknown controls are left out. Columns and rows mirror the physical panel: x and
- * y are rank-quantised, merging coordinates within half the typical control size. A control that
- * lands on an occupied cell moves right to the next free column.
+ * y are ranked, with controls whose physical extents mostly overlap on an axis sharing a column or
+ * row (see `rank`). A control that lands on an occupied cell moves right to the next free column.
  */
 export function buildLayout(topology: Topology): PanelLayout {
 	const usable = topology.controls
@@ -196,44 +199,52 @@ export function buildLayout(topology: Topology): PanelLayout {
 		)
 		.sort((a, b) => a.hwc - b.hwc)
 
-	const xTolerance = median(usable.map((c) => c.w).filter((w) => w > 0)) / 2 || DEFAULT_TOLERANCE
-	const yTolerance = median(usable.map((c) => c.h).filter((h) => h > 0)) / 2 || DEFAULT_TOLERANCE
-	const columns = quantise(
-		usable.map((c) => c.x),
-		xTolerance,
-	)
-	const rows = quantise(
-		usable.map((c) => c.y),
-		yTolerance,
-	)
+	const columns = rank(usable.map((c) => ({ centre: c.x, size: c.w || DEFAULT_SIZE })))
+	const rows = rank(usable.map((c) => ({ centre: c.y, size: c.h || DEFAULT_SIZE })))
 
 	const occupied = new Set<string>()
 	const seen = new Set<number>()
 	const controls: LayoutControl[] = []
-	for (const c of usable) {
-		if (seen.has(c.hwc)) continue
+	usable.forEach((c, i) => {
+		if (seen.has(c.hwc)) return
 		seen.add(c.hwc)
-		const row = rows.get(c.y) ?? 0
-		let column = columns.get(c.x) ?? 0
+		const row = rows[i]
+		let column = columns[i]
 		while (occupied.has(`${row}/${column}`)) column++
 		occupied.add(`${row}/${column}`)
-		controls.push({ controlId: `hwc/${c.hwc}`, hwc: c.hwc, kind: c.kind, hasDisplay: c.hasDisplay, row, column })
-	}
+		controls.push({
+			controlId: `hwc/${c.hwc}`,
+			hwc: c.hwc,
+			kind: c.kind,
+			hasLed: c.output !== '',
+			hasDisplay: c.hasDisplay,
+			row,
+			column,
+		})
+	})
 
 	const surfaceLayout: SurfaceSchemaLayoutDefinition = {
 		stylePresets: {
 			default: { colors: 'hex' },
 			[DISPLAY_STYLE_PRESET]: { colors: 'hex', text: true },
+			[TEXT_STYLE_PRESET]: { text: true },
+			[NO_FEEDBACK_STYLE_PRESET]: {},
 		},
 		controls: Object.fromEntries(
-			controls.map((c) => [
-				c.controlId,
-				c.hasDisplay
-					? { row: c.row, column: c.column, stylePreset: DISPLAY_STYLE_PRESET }
-					: { row: c.row, column: c.column },
-			]),
+			controls.map((c) => {
+				const preset = stylePresetFor(c)
+				return [
+					c.controlId,
+					preset ? { row: c.row, column: c.column, stylePreset: preset } : { row: c.row, column: c.column },
+				]
+			}),
 		),
 	}
 
 	return { controls, surfaceLayout, signature: JSON.stringify(controls) }
+}
+
+function stylePresetFor(control: LayoutControl): string | undefined {
+	if (control.hasDisplay) return control.hasLed ? DISPLAY_STYLE_PRESET : TEXT_STYLE_PRESET
+	return control.hasLed ? undefined : NO_FEEDBACK_STYLE_PRESET
 }

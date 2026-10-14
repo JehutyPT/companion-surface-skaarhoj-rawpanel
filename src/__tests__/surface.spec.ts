@@ -34,6 +34,16 @@ async function openSurface(topology: unknown) {
 	return { ...opened, panel: harness.panel }
 }
 
+/** Render a layout as rows of right-aligned HWC numbers, `.` for an empty cell. */
+function asciiGrid(controls: Record<string, { row: number; column: number }>): string {
+	const cells = Object.entries(controls).map(([id, c]) => ({ hwc: id.replace('hwc/', ''), ...c }))
+	const rows = Math.max(...cells.map((c) => c.row)) + 1
+	const columns = Math.max(...cells.map((c) => c.column)) + 1
+	const grid = Array.from({ length: rows }, () => Array<string>(columns).fill('.'))
+	for (const c of cells) grid[c.row][c.column] = c.hwc
+	return grid.map((r) => r.map((cell) => cell.padStart(3)).join('')).join('\n')
+}
+
 /** Draw, then wait for the queue to flush and return what reached the panel. */
 async function drawAndCollect(surface: SurfaceInstance, ...draws: Parameters<SurfaceInstance['draw']>[1][]) {
 	harness!.panel.clearReceived()
@@ -52,16 +62,50 @@ describe('layout from topology', () => {
 		expect(result.registerProps.transferVariables).toBeUndefined()
 	})
 
-	test('controls with a display get the text preset, others the colour-only default', async () => {
+	test('style presets follow what each control can show: LED colour, display text, both or neither', async () => {
 		const { result } = await openSurface(ptzExtremeTopology)
+		const layout = result.registerProps.surfaceLayout
+		const preset = (id: number) => layout.stylePresets[layout.controls[`hwc/${id}`].stylePreset ?? 'default']
+
+		// Four-way buttons and Knob A-H have an RGB LED and a display
+		expect(preset(1)).toEqual({ colors: 'hex', text: true })
+		expect(preset(54)).toEqual({ colors: 'hex', text: true })
+		expect(preset(46)).toEqual({ colors: 'hex', text: true })
+		// Iris, Focus and the joystick top button have neither
+		expect(preset(57)).toEqual({})
+		expect(preset(59)).toEqual({})
+		expect(preset(63)).toEqual({})
+	})
+
+	test('an LED-only control uses the default preset, a display-only control gets text without colour', async () => {
+		const { result } = await openSurface({
+			HWc: [
+				{ id: 1, x: 100, y: 100, txt: 'LED', type: 1 },
+				{ id: 2, x: 300, y: 100, txt: 'Display', type: 2 },
+			],
+			typeIndex: {
+				'1': { w: 100, h: 100, in: 'b', out: 'rgb' },
+				'2': { w: 100, h: 100, in: 'b', disp: { w: 64, h: 32, subidx: 0 } },
+			},
+		})
 		const layout = result.registerProps.surfaceLayout
 
 		expect(layout.stylePresets.default).toEqual({ colors: 'hex' })
-		const displayPreset = layout.controls['hwc/1'].stylePreset!
-		expect(layout.stylePresets[displayPreset]).toEqual({ colors: 'hex', text: true })
-		expect(layout.controls['hwc/46'].stylePreset).toBe(displayPreset)
-		expect(layout.controls['hwc/57'].stylePreset).toBeUndefined()
-		expect(layout.controls['hwc/63'].stylePreset).toBeUndefined()
+		expect(layout.controls['hwc/1'].stylePreset).toBeUndefined()
+		expect(layout.stylePresets[layout.controls['hwc/2'].stylePreset!]).toEqual({ text: true })
+	})
+
+	test('controls with neither an LED nor a display get no commands, on connect or on draw', async () => {
+		const { result, panel } = await openSurface(ptzExtremeTopology)
+
+		expect(panel.commands.filter((l) => /^HWCc?#(57|59|63)=/.test(l))).toEqual([])
+		const sent = await drawAndCollect(result.surface, {
+			controlId: 'hwc/57',
+			color: '#ff0000',
+			text: 'Iris',
+			pressed: true,
+		})
+		expect(sent).toEqual([])
 	})
 
 	test('rows and columns mirror physical positions, merging nearby coordinates', async () => {
@@ -80,23 +124,41 @@ describe('layout from topology', () => {
 		})
 	})
 
-	test('the PTZ Extreme rows follow the panel: Cam, X and A rows stacked, twelve columns each', async () => {
+	test('the real PTZ Extreme topology maps to a grid that mirrors the panel', async () => {
 		const { result } = await openSurface(ptzExtremeTopology)
-		const c = result.registerProps.surfaceLayout.controls
-		const row = (ids: number[]) => [...new Set(ids.map((id) => c[`hwc/${id}`].row))]
-		const columns = (ids: number[]) => ids.map((id) => c[`hwc/${id}`].column)
 
-		const cams = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-		const xs = cams.map((n) => n + 12)
-		const as = [37, 38, 39, 40, 41, 42, 43, 44, 45, 54, 55, 56]
-		expect(row(cams)).toHaveLength(1)
-		expect(row(xs)).toHaveLength(1)
-		expect(row(as)).toHaveLength(1)
-		expect(row(cams)[0]).toBeLessThan(row(xs)[0])
-		expect(row(xs)[0]).toBeLessThan(row(as)[0])
-		expect(columns(xs)).toEqual(columns(cams))
-		expect(columns(as)).toEqual(columns(cams))
-		expect(new Set(columns(cams)).size).toBe(12)
+		// Top row: A10-A12, Knob A-H, joystick top button. Knobs sit on a wider pitch than the
+		// buttons and share columns with the buttons below them. Iris (57) sits alone between the
+		// A and X rows; Focus (59, round, no h) is close enough to share the Cam row.
+		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(
+			[
+				' 54 55 56 46 47 48  . 49 50  . 51 52  . 53  .  . 63',
+				'  .  .  .  .  . 37 38 39 40 41 42 43 44 45  .  .  .',
+				'  .  .  .  . 57  .  .  .  .  .  .  .  .  .  .  .  .',
+				'  .  .  .  .  . 13 14 15 16 17 18 19 20 21 22 23 24',
+				'  .  .  . 59  .  1  2  3  4  5  6  7  8  9 10 11 12',
+			].join('\n'),
+		)
+	})
+
+	test('controls with only a width are treated as round: their height is their width', async () => {
+		const { result } = await openSurface({
+			HWc: [
+				{ id: 1, x: 100, y: 1000, txt: 'Button', type: 1 },
+				{ id: 2, x: 300, y: 1000, txt: 'Button', type: 1 },
+				{ id: 3, x: 500, y: 930, txt: 'Big knob', type: 2 },
+				{ id: 4, x: 700, y: 1070, txt: 'Small knob', type: 3 },
+			],
+			typeIndex: {
+				'1': { w: 150, h: 100, in: 'b', out: 'rgb' },
+				'2': { w: 240, in: 'pb' },
+				'3': { w: 100, in: 'pb' },
+			},
+		})
+
+		// The big knob is 70 above the buttons, within half its 240 width: same row. The small knob
+		// is 70 below, beyond half its 100 width: a row of its own.
+		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(['  1  2  3  .', '  .  .  .  4'].join('\n'))
 	})
 
 	test('a control on an occupied cell moves right to the next free column', async () => {
@@ -107,7 +169,7 @@ describe('layout from topology', () => {
 				{ id: 3, x: 100, y: 100, txt: 'C', type: 1 },
 				{ id: 4, x: 300, y: 100, txt: 'D', type: 1 },
 			],
-			typeIndex: { '1': { w: 100, h: 100, in: 'b' } },
+			typeIndex: { '1': { w: 100, h: 100, in: 'b', out: 'rgb' } },
 		})
 		const c = result.registerProps.surfaceLayout.controls
 

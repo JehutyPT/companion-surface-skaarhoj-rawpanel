@@ -115,7 +115,7 @@ export class RawPanelSurface implements SurfaceInstance {
 	}
 
 	#commandsFor(control: LayoutControl, state: ControlState): PanelCommand[] {
-		const commands = ledCommands(control.hwc, state.color, state.pressed)
+		const commands = control.hasLed ? ledCommands(control.hwc, state.color, state.pressed) : []
 		if (control.hasDisplay) commands.push(textCommand(control.hwc, state.text))
 		return commands
 	}
