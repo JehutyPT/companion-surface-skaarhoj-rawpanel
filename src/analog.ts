@@ -111,7 +111,7 @@ interface AxisState {
  * position (0) and the ends of travel. The return to centre must never be swallowed.
  */
 function bypassesDeadband(mode: AnalogMode, value: number): boolean {
-	return mode === 'Speed' ? value === 0 || Math.abs(value) >= 500 : value <= 0 || value >= 1000
+	return value === 0 || Math.abs(value) >= fullScale(mode)
 }
 
 export class AnalogSender {

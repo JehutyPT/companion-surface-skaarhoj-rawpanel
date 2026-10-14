@@ -71,7 +71,7 @@ function axisFields(axis: AnalogAxis): SomeCompanionInputField[] {
 			id: deadbandFieldId(axis.hwc),
 			type: 'number',
 			label: `${axis.name}: dead zone`,
-			tooltip: `In panel steps from 0 (this axis runs ${travel}). A value this close to 0 reads 0, and a change smaller than this is not sent; 0 and full travel always get through. 0 turns it off and sends every change.`,
+			tooltip: `In panel steps from 0 (this axis runs ${travel}). A value this close to 0 reads 0, and a change in the scaled value smaller than this is not sent; 0 and full travel always get through. 0 turns it off and sends every change.`,
 			default: defaults.deadband,
 			...DEADBAND_RANGE,
 		},
