@@ -2,11 +2,12 @@
  * Analog controls (joysticks, rockers, faders, T-bars) as Companion input transfer variables.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import type { LoggingSink } from '@companion-surface/base'
+import type { LoggingSink, OpenSurfaceResult } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
 import { sleep, waitFor } from './helpers/fake-panel.js'
 import { FakeSurfaceContext, type ContextCall } from './helpers/fake-context.js'
 import { ptzExtremeTopology } from './fixtures/topologies.js'
+import { parseAnalogTuning } from '../analog.js'
 
 let harness: Harness | undefined
 
@@ -285,5 +286,109 @@ describe('analog values', () => {
 		await sleep(80)
 
 		expect(variables(context.calls)).toEqual([])
+	})
+})
+
+describe('analog tuning (surface settings)', () => {
+	const fields = (result: OpenSurfaceResult) => result.registerProps.configFields ?? []
+
+	test('the dead zone and send interval are number fields defaulting to 6 and 50 ms', async () => {
+		const { result } = await openSurface()
+
+		expect(fields(result).find((f) => f.id === 'analogDeadband')).toMatchObject({
+			type: 'number',
+			default: 6,
+			min: 0,
+			max: 100,
+		})
+		expect(fields(result).find((f) => f.id === 'analogInterval')).toMatchObject({
+			type: 'number',
+			default: 50,
+			min: 10,
+			max: 1000,
+		})
+	})
+
+	test('a dead zone of 0 sends every change, including a few units off centre', async () => {
+		const { context, panel, result } = await openSurface()
+		await result.surface.updateConfig!({ analogDeadband: 0 })
+		context.calls.length = 0
+
+		panel.send('HWC#60=Speed:3')
+		await sleep(70)
+		panel.send('HWC#60=Speed:4')
+		await sleep(70)
+
+		expect(variables(context.calls)).toEqual([
+			['variable', 'hwc_60', 3],
+			['variable', 'hwc_60', 4],
+		])
+	})
+
+	test('a larger dead zone swallows bigger changes, but the ends of travel and centre still get through', async () => {
+		const { context, panel, result } = await openSurface()
+		await result.surface.updateConfig!({ analogDeadband: 50 })
+		context.calls.length = 0
+
+		for (const v of [40, 100, 140, 480, 500, 30]) {
+			panel.send(`HWC#60=Speed:${v}`)
+			await sleep(70)
+		}
+
+		expect(variables(context.calls)).toEqual([
+			['variable', 'hwc_60', 100],
+			['variable', 'hwc_60', 480],
+			['variable', 'hwc_60', 500],
+			['variable', 'hwc_60', 0],
+		])
+	})
+
+	test('a longer send interval coalesces a burst more, still ending on the final value', async () => {
+		const { context, panel, result } = await openSurface()
+		await result.surface.updateConfig!({ analogInterval: 300 })
+		await sleep(300)
+		context.calls.length = 0
+
+		panel.send('HWC#61=Speed:100')
+		await sleep(100)
+		panel.send('HWC#61=Speed:200')
+		await sleep(100)
+		panel.send('HWC#61=Speed:250')
+		await sleep(30)
+		expect(variables(context.calls)).toEqual([['variable', 'hwc_61', 100]])
+
+		await sleep(200)
+		expect(variables(context.calls)).toEqual([
+			['variable', 'hwc_61', 100],
+			['variable', 'hwc_61', 250],
+		])
+	})
+
+	test('changing the tuning applies at once, without reconnecting or sending the panel anything', async () => {
+		const { context, panel, result } = await openSurface()
+		const connections = panel.connectionCount
+		panel.clearReceived()
+		await result.surface.updateConfig!({ analogDeadband: 0, analogInterval: 10 })
+		await sleep(50)
+		context.calls.length = 0
+
+		panel.send('HWC#60=Speed:2')
+		await sleep(30)
+
+		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', 2]])
+		expect(panel.connectionCount).toBe(connections)
+		expect(panel.commands).toEqual([])
+	})
+
+	test.each([
+		['missing', {}, 6, 50],
+		['empty strings', { analogDeadband: '', analogInterval: '' }, 6, 50],
+		['not numbers', { analogDeadband: 'abc', analogInterval: null }, 6, 50],
+		['numeric strings', { analogDeadband: '12', analogInterval: '120' }, 12, 120],
+		['below range', { analogDeadband: -5, analogInterval: 0 }, 0, 10],
+		['above range', { analogDeadband: 900, analogInterval: 99999 }, 100, 1000],
+		['fractions', { analogDeadband: 2.6, analogInterval: 75.4 }, 3, 75],
+	])('%s values are read as a usable tuning', (_name, config, deadband, intervalMs) => {
+		expect(parseAnalogTuning(config)).toEqual({ deadband, intervalMs })
 	})
 })

@@ -1,14 +1,51 @@
 /**
  * Analog axes (joysticks, rockers, faders, T-bars) to Companion input transfer variables: the
- * panel's raw value, sent only on change past a small deadband, at most once per interval per
- * axis, with a trailing send so the final value always arrives.
+ * panel's raw value, sent only on change past a deadband, at most once per interval per axis, with
+ * a trailing send so the final value always arrives. Both are user settings (`AnalogTuning`).
  */
 import type { AnalogAxis, AnalogMode } from './topology.js'
 
-/** Changes smaller than this (in panel units) are not sent. The joystick jitters by about ±5 at rest. */
-export const ANALOG_DEADBAND = 6
-/** At most one send per axis this often: Companion's variable-trigger throttle is about 20 Hz. */
-export const ANALOG_INTERVAL_MS = 50
+export interface AnalogTuning {
+	/** Changes smaller than this (in panel units) are not sent; an intensity value this close to 0 counts as 0. 0 sends every change. */
+	deadband: number
+	/** At most one send per axis this often */
+	intervalMs: number
+}
+
+/** The joystick jitters by about ±5 at rest; Companion's variable-trigger throttle is about 20 Hz. */
+export const DEFAULT_ANALOG_TUNING: Readonly<AnalogTuning> = { deadband: 6, intervalMs: 50 }
+
+interface Range {
+	min: number
+	max: number
+}
+
+/** Accepted values; Companion's number field `min`/`max` are only a UI hint. */
+export const ANALOG_TUNING_RANGES: Readonly<Record<keyof AnalogTuning, Range>> = {
+	deadband: { min: 0, max: 100 },
+	intervalMs: { min: 10, max: 1000 },
+}
+
+/** The tuning from the surface config fields `analogDeadband` and `analogInterval`. */
+export function parseAnalogTuning(config: Record<string, unknown>): AnalogTuning {
+	return {
+		deadband: parseWholeNumber(config.analogDeadband, DEFAULT_ANALOG_TUNING.deadband, ANALOG_TUNING_RANGES.deadband),
+		intervalMs: parseWholeNumber(
+			config.analogInterval,
+			DEFAULT_ANALOG_TUNING.intervalMs,
+			ANALOG_TUNING_RANGES.intervalMs,
+		),
+	}
+}
+
+/** A whole number clamped to the range; the default for anything missing or not a number. */
+function parseWholeNumber(value: unknown, fallback: number, range: Range): number {
+	if (typeof value === 'string' && value.trim() === '') return fallback
+	if (typeof value !== 'number' && typeof value !== 'string') return fallback
+	const n = Number(value)
+	if (!Number.isFinite(n)) return fallback
+	return Math.max(range.min, Math.min(range.max, Math.round(n)))
+}
 
 interface AxisState {
 	axis: AnalogAxis
@@ -30,6 +67,7 @@ export class AnalogSender {
 	readonly #byHwc = new Map<number, AxisState>()
 	readonly #send: (variableId: string, value: number) => void
 	readonly #isLocked: () => boolean
+	#tuning: Readonly<AnalogTuning> = DEFAULT_ANALOG_TUNING
 	#stopped = false
 
 	constructor(axes: AnalogAxis[], send: (variableId: string, value: number) => void, isLocked: () => boolean) {
@@ -46,6 +84,11 @@ export class AnalogSender {
 		}
 	}
 
+	/** New tuning, applied from the next value. A trailing send already queued keeps its time. */
+	configure(tuning: Readonly<AnalogTuning>): void {
+		this.#tuning = tuning
+	}
+
 	/**
 	 * A value from the panel. An intensity axis within the deadband of 0 counts as 0, so an axis that
 	 * comes to rest slightly off centre still reads 0. While Companion is locked only 0 goes out.
@@ -54,7 +97,8 @@ export class AnalogSender {
 		const state = this.#byHwc.get(hwc)
 		if (!state || this.#stopped) return
 		const mode = state.axis.mode
-		const value = mode === 'Speed' && Math.abs(raw) < ANALOG_DEADBAND ? 0 : raw
+		const { deadband, intervalMs } = this.#tuning
+		const value = mode === 'Speed' && Math.abs(raw) < deadband ? 0 : raw
 		if (value !== 0 && this.#isLocked()) {
 			state.pending = undefined
 			return
@@ -62,14 +106,13 @@ export class AnalogSender {
 
 		const last = state.lastSent
 		const changed =
-			last === undefined ||
-			(value !== last && (bypassesDeadband(mode, value) || Math.abs(value - last) >= ANALOG_DEADBAND))
+			last === undefined || (value !== last && (bypassesDeadband(mode, value) || Math.abs(value - last) >= deadband))
 		if (!changed) {
 			// Back within the deadband of what Companion has: a queued value is now stale.
 			state.pending = undefined
 			return
 		}
-		if (!state.timer && performance.now() - state.lastSentAt >= ANALOG_INTERVAL_MS) {
+		if (!state.timer && performance.now() - state.lastSentAt >= intervalMs) {
 			this.#emit(state, value)
 			return
 		}
@@ -83,7 +126,7 @@ export class AnalogSender {
 				if (pending !== 0 && this.#isLocked()) return
 				this.#emit(state, pending)
 			},
-			Math.max(0, state.lastSentAt + ANALOG_INTERVAL_MS - performance.now()),
+			Math.max(0, state.lastSentAt + intervalMs - performance.now()),
 		)
 	}
 

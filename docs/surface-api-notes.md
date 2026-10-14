@@ -142,24 +142,25 @@ interface SurfaceInputVariable {
 ```
 
 - One input variable per axis (`iv`/`ih`/`ir`/`av`/`ah`/`ar`), numeric value.
-- Send only on change, with a small deadband, coalesced to at most one send per 50 ms (~20 Hz, Companion's variable-trigger throttle).
+- Send only on change past a deadband, coalesced to at most one send per interval per axis. Both are user settings here (below); the defaults are 6 panel units and 50 ms (~20 Hz, Companion's variable-trigger throttle).
 - The surface settings show, per transfer variable, a dropdown of the user's existing custom variables, with no default. A plugin cannot create or preselect them, and page exports don't include custom variables. So tooltips and HELP.md suggest names (`skaarhoj_zoom`, `skaarhoj_lr`, …) for the user to create once.
 - Recommend "persist value" off on those custom variables; otherwise each change is a database write.
 
 What the plugin does (`src/analog.ts`, `buildAxes` in `src/topology.ts`):
 
 - Variable id `hwc_<n>`; name from the topology type's `desc`, else the HWC's `txt`, plus `(HWC n)` (e.g. `4-Axis Joystick, Left-Right (HWC 60)`). The description gives the raw range and suggests `skaarhoj_<txt>` (`skaarhoj_zoom`, `skaarhoj_lr`, `skaarhoj_ud`, `skaarhoj_rotate` on the PTZ Extreme), with `_<n>` added when two axes share a label and `skaarhoj_hwc_<n>` with no label.
-- Deadband 6 panel units. An intensity value within 6 of 0 counts as 0, so an axis resting slightly off centre reads 0. 0 and the ends of travel (±500 for `Speed`, 0 and 1000 for `Abs`) always bypass the deadband, so the return to centre is never swallowed. First change after 50 ms idle goes out at once; later ones within the window collapse into one trailing send of the latest value.
+- Deadband `d` panel units (setting, default 6). An intensity value within `d` of 0 counts as 0, so an axis resting slightly off centre reads 0. 0 and the ends of travel (±500 for `Speed`, 0 and 1000 for `Abs`) always bypass the deadband, so the return to centre is never swallowed. `d = 0` sends every change. First change after an idle interval (setting, default 50 ms) goes out at once; later ones within the window collapse into one trailing send of the latest value.
 - Intensity axes (`Speed`) send 0 on `ready()` (not `init()`: Companion 5.1 drops variable values sent before the surface is registered, logging "Received input variable value for unknown surface"), when the link drops and when the surface closes, so a camera never keeps moving on a stale value. Absolute axes (`Abs`) have no rest position and keep their value.
 - While Companion is locked, non-zero values (including one already queued) are dropped but 0 still goes out (mirrors encoders, which are ignored while locked). Whether the host itself drops variable values while locked is unverified.
 - The axes are part of the layout signature: transfer variables are fixed at open, like the layout.
 
-## Panel settings (per-surface `configFields`)
+## Surface settings (per-surface `configFields`)
 
-The sleep timeout and the brightness link are **surface** `configFields` (`registerProps.configFields`, delivered through `updateConfig`, called before `ready()` and on every edit), not remote connection fields. They don't affect the layout, and surface fields apply without reconnecting, whereas saving a remote connection field restarts the connection. They show in Companion under **Surfaces**, in the panel's surface settings.
+The sleep timeout, the brightness link and the analog tuning are **surface** `configFields` (`registerProps.configFields`, delivered through `updateConfig`, called before `ready()` and on every edit), not remote connection fields. They don't affect the layout, and surface fields apply without reconnecting, whereas saving a remote connection field restarts the connection. They show in Companion under **Surfaces**, in the panel's surface settings.
 
 - **Panel sleep timeout** (`sleepTimer`, dropdown): default `panel` sends nothing. A choice in ms (0 = never) sends `SleepTimer=<ms>` at once, then with every full-state push (connect and wake), since the panel resets it to 4 h on reboot. A number field can't express "leave alone" (it needs a default and 0 already means never), hence the dropdown.
 - **Set panel brightness from Companion** (`linkBrightness`, checkbox, default off): when on, `setBrightness(percent)` sends `PanelBrightness=<l>,<l>` with `l = round(percent / 100 * 8)` (0 % is the panel's 0). Turning it on sends the last brightness Companion gave at once.
+- **Analog dead zone** (`analogDeadband`, number, default 6, 0-100) and **Analog send interval (ms)** (`analogInterval`, number, default 50, 10-1000): plugin-side only, nothing goes to the panel. Applied to the next analog value; a trailing send already queued keeps its time. Number fields' `min`/`max` are only a UI hint, so `parseAnalogTuning` (`src/analog.ts`) rounds, clamps, and falls back to the default for a missing or non-numeric value.
 - `registerProps.brightness` is fixed at open, so it is always `true`: Companion shows its brightness slider even when the link is off, and then the slider does nothing.
 - Going back to the defaults stops sending but does not restore the panel's previous values: the plugin never reads them.
 

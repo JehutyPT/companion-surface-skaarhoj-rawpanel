@@ -26,7 +26,7 @@ The panel appears as a surface named after its model. Its button grid follows th
 
 ### Joystick, zoom rocker and faders
 
-Each analog axis sends the panel's raw value to a Companion custom variable: -500 to 500 for joysticks and rockers (0 at rest), 0 to 1000 for faders and T-bars. Values are sent at most 20 times a second per axis, ignore tiny jitter (a joystick resting a few steps off centre reads 0), and always end on the final value, including the return to 0. If the connection drops, joysticks and rockers are set back to 0.
+Each analog axis sends the panel's raw value to a Companion custom variable: -500 to 500 for joysticks and rockers (0 at rest), 0 to 1000 for faders and T-bars. By default values are sent at most 20 times a second per axis and ignore tiny jitter (a joystick resting a few steps off centre reads 0); both are adjustable (see Analog tuning below). Values always end on the final value, including the return to 0. If the connection drops, joysticks and rockers are set back to 0.
 
 The plugin can't create these variables or preselect them in the surface settings, so set them up once:
 
@@ -35,6 +35,13 @@ The plugin can't create these variables or preselect them in the surface setting
 3. Use the variables in triggers, expressions or actions, for example to drive a PTZ camera.
 
 While the surface is locked, axis moves are ignored, but the return to 0 still gets through.
+
+#### Analog tuning
+
+In **Surfaces**, the panel's settings have two fields for the analog axes. Changes apply at once, without reconnecting:
+
+- **Analog dead zone** (default 6, 0 to 100): in panel steps. A change smaller than this is not sent, and a joystick or rocker this close to centre reads 0. Full travel (±500, or 0 and 1000 on a fader) and the return to centre always get through. 0 turns the dead zone off and sends every change. Raise it if a joystick at rest keeps sending values; lower it for finer control.
+- **Analog send interval (ms)** (default 50, 10 to 1000): the shortest time between two values sent for one axis. Faster moves are combined, always ending on the latest value. 50 ms is about 20 times a second, which matches how often Companion reacts to variable changes; 10 is the fastest.
 
 ### Connection
 

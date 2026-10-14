@@ -1,8 +1,9 @@
 /**
- * Per-surface settings that change the panel's own settings. All opt-in: with the defaults the
- * plugin never sends `SleepTimer=` or `PanelBrightness=`.
+ * Per-surface settings: the panel's own settings, all opt-in (with the defaults the plugin never
+ * sends `SleepTimer=` or `PanelBrightness=`), and the analog tuning (dead zone, send interval).
  */
 import type { SomeCompanionInputField } from '@companion-surface/base'
+import { ANALOG_TUNING_RANGES, DEFAULT_ANALOG_TUNING } from './analog.js'
 import type { PanelCommand } from './protocol.js'
 
 /** Dropdown value meaning "leave the panel's sleep timer alone" */
@@ -37,6 +38,24 @@ export const surfaceConfigFields: SomeCompanionInputField[] = [
 		tooltip:
 			"Ties the panel's LED and display brightness to this surface's Brightness setting (0-100% becomes the panel's 0-8). Off leaves the panel's brightness alone; turning it off does not undo a value already sent.",
 		default: false,
+	},
+	{
+		id: 'analogDeadband',
+		type: 'number',
+		label: 'Analog dead zone',
+		tooltip:
+			'In panel steps (joysticks and rockers run -500 to 500, faders 0 to 1000). Changes smaller than this are not sent, and a joystick or rocker this close to centre reads 0. Full travel and the return to centre always get through. 0 sends every change.',
+		default: DEFAULT_ANALOG_TUNING.deadband,
+		...ANALOG_TUNING_RANGES.deadband,
+	},
+	{
+		id: 'analogInterval',
+		type: 'number',
+		label: 'Analog send interval (ms)',
+		tooltip:
+			'The shortest time between two values sent for one axis, in milliseconds. Faster moves are combined, always ending on the latest value. 50 ms is about 20 times a second; 10 is the fastest.',
+		default: DEFAULT_ANALOG_TUNING.intervalMs,
+		...ANALOG_TUNING_RANGES.intervalMs,
 	},
 ]
 
