@@ -255,11 +255,12 @@ function nearestFreeColumn(occupied: Set<string>, row: number, column: number): 
  *    control, so it cannot collide.
  */
 export function buildLayout(topology: Topology): PanelLayout {
-	const seen = new Set<number>()
-	const usable = topology.controls
-		.filter(isUsable)
-		.sort((a, b) => a.hwc - b.hwc)
-		.filter((c) => !seen.has(c.hwc) && seen.add(c.hwc))
+	// One control per HWC id: the first one listed wins.
+	const byHwc = new Map<number, UsableControl>()
+	for (const control of topology.controls.filter(isUsable)) {
+		if (!byHwc.has(control.hwc)) byHwc.set(control.hwc, control)
+	}
+	const usable = [...byHwc.values()].sort((a, b) => a.hwc - b.hwc)
 
 	const columns = rank(usable.map((c) => ({ centre: c.x, size: c.w || DEFAULT_SIZE })))
 	const { rows, moved } = mergeLoneRows(

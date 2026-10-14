@@ -13,6 +13,13 @@ import { DEFAULT_TIMINGS, PanelConnection, type ConnectionTimings, type PanelIde
 import type { PanelCommand, PanelEvent } from './protocol.js'
 import { buildLayout, type PanelLayout, type Topology } from './topology.js'
 
+/**
+ * Announce again at most this many times after consecutive rejections (1 + 2 + 4 + 8 + 16 s by
+ * default, ample for Companion to close an old surface). A rejection that persists (surface
+ * declined, or two connections reaching the same panel) then stops until the panel reconnects.
+ */
+const MAX_REJECT_RETRIES = 5
+
 export interface RawPanelDeviceInfo {
 	link: PanelLink
 	/** The handle this announcement was made with; stale once the link re-announces */
@@ -52,6 +59,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	#reannounceOnClose = false
 	#rejectTimer: NodeJS.Timeout | undefined
 	#rejectRetryMs: number
+	#rejections = 0
 
 	constructor(
 		address: string,
@@ -113,17 +121,23 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	/** Called by the surface instance when it opens. */
 	attach(surface: PanelSurfaceHandle): void {
 		this.#surface = surface
-		clearTimeout(this.#rejectTimer)
-		this.#rejectRetryMs = this.#timings.rejectRetryMs
+		this.#resetRejections()
 	}
 
 	/**
 	 * Companion rejected the announcement `info`. Announce again after a delay that doubles per
-	 * rejection; a rejection of an announcement that is no longer current is ignored.
+	 * rejection, up to `MAX_REJECT_RETRIES` times; a rejection of an announcement that is no longer
+	 * current is ignored.
 	 */
 	rejected(info: RawPanelDeviceInfo): void {
 		if (this.#stopped || this.#surface || info.deviceHandle !== this.#deviceHandle) return
 		this.#deviceHandle = undefined
+		if (++this.#rejections > MAX_REJECT_RETRIES) {
+			this.#logger.warn(
+				`Companion rejected surface ${this.#surfaceId} ${this.#rejections} times in a row; not announcing it again until the panel reconnects`,
+			)
+			return
+		}
 		const delay = this.#rejectRetryMs
 		this.#rejectRetryMs = Math.min(delay * 2, this.#timings.backoffMaxMs)
 		this.#logger.info(`Companion rejected surface ${this.#surfaceId}; announcing it again in ${delay} ms`)
@@ -154,6 +168,12 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		for (const command of commands) this.#connection.write(command.key, command.line)
 	}
 
+	#resetRejections(): void {
+		clearTimeout(this.#rejectTimer)
+		this.#rejections = 0
+		this.#rejectRetryMs = this.#timings.rejectRetryMs
+	}
+
 	#onOnline(identity: PanelIdentity): void {
 		const surfaceId = identity.serial ? `skaarhoj:${identity.serial}` : `skaarhoj:${this.address}:${this.port}`
 		this.#logUnknownControls(identity.topology)
@@ -165,6 +185,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		this.#layout = layout
 
 		if (this.#deviceHandle === undefined) {
+			this.#resetRejections()
 			this.#doAnnounce()
 		} else if (samePanelAndLayout) {
 			this.emit('resync')

@@ -286,6 +286,23 @@ describe('Companion declines or still holds the surface', () => {
 		expect(times[2] - times[1]).toBeLessThan(180)
 	})
 
+	test('stops announcing after five rejections in a row, with a warning, until the panel reconnects', async () => {
+		harness = new Harness({ topology: smallTopology }, { ...fastTimings, rejectRetryMs: 5, backoffMaxMs: 20 })
+		await harness.start()
+		await harness.connect()
+
+		for (let n = 1; n <= 5; n++) harness.plugin.remote!.rejectSurface(await harness.waitForAnnouncements(n))
+		await harness.waitForAnnouncements(6)
+		harness.plugin.remote!.rejectSurface(harness.announced[5])
+		await sleep(150)
+
+		expect(harness.announced).toHaveLength(6)
+		expect(logs.some((l) => l.level === 'warn' && /rejected/.test(l.message))).toBe(true)
+
+		harness.panel.dropClients()
+		await harness.waitForAnnouncements(7)
+	})
+
 	test('a rejection of an announcement that is no longer current is ignored', async () => {
 		harness = new Harness({ topology: smallTopology })
 		await harness.start()
