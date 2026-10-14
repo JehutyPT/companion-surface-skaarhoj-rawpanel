@@ -91,7 +91,7 @@ Order after open: `showStatus` → `updateConfig` → `ready` → `draw`s. The h
 
 `registerProps` also carries `brightness`, `pincodeMap` (null for none), `location` (the address), `configFields`, `transferVariables`, `canChangePage`.
 
-Config field types (`input.d.ts`): `static-text` (`value: string`), `textinput`, `dropdown`, `number`, `checkbox`; all take `label`, `tooltip`, `description`, `isVisibleExpression`. The preset-page pointer is a `static-text` field; Markdown link rendering in it is per decision, not verified against Companion source.
+Config field types (`input.d.ts`): `static-text` (`value: string`), `textinput`, `dropdown`, `number`, `checkbox`; all take `label`, `tooltip`, `description`, `isVisibleExpression`. The preset-page pointer is a `static-text` field; Companion 5.1.0 renders its `value` as sanitised Markdown (`webui/src/Controls/StaticTextField.tsx`, `parse()` then `sanitizeHtmlString`), so links work.
 
 ## What `draw()` receives (Companion 5.1.0 `PluginPanel.ts`)
 
