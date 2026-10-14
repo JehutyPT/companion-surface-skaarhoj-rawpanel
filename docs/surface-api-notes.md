@@ -46,6 +46,7 @@ Elgato's pattern:
 - The layout is returned once, in `registerProps.surfaceLayout` from `openSurface()`. There is no API to re-register it.
 - So read `PanelTopology?` before emitting `surfacesConnected` (or inside `openSurface`, which is async) and build the layout from it.
 - To change layout later: `context.disconnect(err)` and re-emit `surfacesConnected` with a new `deviceHandle`. `close()` must be idempotent.
+- Settings that affect the layout (the custom `control → row/column` map) must be remote connection `configFields`: they arrive in `startConnections` before `openSurface`. Saving one reconnects. Surface `configFields` arrive via `updateConfig` after open, too late for layout.
 
 Layout types (1.4 derives them from the zod schema in `src/surface-layout-schema.ts`, re-exported from the root):
 
@@ -90,6 +91,8 @@ Order after open: `showStatus` → `updateConfig` → `ready` → `draw`s. The h
 
 `registerProps` also carries `brightness`, `pincodeMap` (null for none), `location` (the address), `configFields`, `transferVariables`, `canChangePage`.
 
+Config field types (`input.d.ts`): `static-text` (`value: string`), `textinput`, `dropdown`, `number`, `checkbox`; all take `label`, `tooltip`, `description`, `isVisibleExpression`. The preset-page pointer is a `static-text` field; Markdown link rendering in it is per decision, not verified against Companion source.
+
 ## What `draw()` receives (Companion 5.1.0 `PluginPanel.ts`)
 
 ```ts
@@ -122,7 +125,26 @@ rotateById(controlId: string, delta: number): void // signed: negative = left; 0
 ```
 
 - Use `rotateById` with the panel's signed pulse count rather than one call per detent.
-- No absolute-value input (faders). Not needed: the joystick belongs to PTZJoystickControl.
+
+## Analog input (transfer variables)
+
+Companion 5.1 has no analog input control type (bitfocus/companion#1708, open). Analog controls go through transfer variables instead:
+
+```ts
+interface SurfaceInputVariable {
+	id: string
+	type: 'input' // produced by the surface
+	name: string
+	description?: string
+}
+// registerProps.transferVariables?: Array<SurfaceInputVariable | SurfaceOutputVariable>
+// context.sendVariableValue(variable: string, value: any): void
+```
+
+- One input variable per axis (`iv`/`ih`/`ir`/`av`/`ah`/`ar`), numeric value.
+- Send only on change, with a small deadband, coalesced to at most one send per 50 ms (~20 Hz, Companion's variable-trigger throttle).
+- The surface settings show, per transfer variable, a dropdown of the user's existing custom variables, with no default. A plugin cannot create or preselect them, and page exports don't include custom variables. So tooltips and HELP.md suggest names (`skaarhoj_zoom`, `skaarhoj_joy_x`, …) for the user to create once.
+- Recommend "persist value" off on those custom variables; otherwise each change is a database write.
 
 ## Loading a dev build into Companion
 

@@ -1,6 +1,6 @@
-# Raw Panel ASCII v1: protocol notes for the PTZ Extreme
+# Raw Panel ASCII v1: protocol notes
 
-Reference for talking to a SKAARHOJ SK_PTZEXTREMEV2 (UniSketch v2.5.27, server mode, TCP 9923). Compiled 2026-10-13 from primary sources; nothing here was re-measured.
+Reference for talking to a SKAARHOJ Raw Panel in server mode (TCP 9923). The plugin targets any Raw Panel; measured details come from the first test panel, an SK_PTZEXTREMEV2 on UniSketch v2.5.27. Compiled 2026-10-13 from primary sources; nothing here was re-measured.
 
 Provenance tags:
 
@@ -32,7 +32,7 @@ Recommended order:
 1. Connect.
 2. `list` → `_model=SK_PTZEXTREMEV2`, `_serial=…`, `_version=v2.5.27`, `_bluePillReady=0` [HW]. Does not return the HWC map on this firmware.
 3. `PanelTopology?`
-4. `SleepTimer=1800000` (does not survive reboot; see Sleep).
+4. Panel-setting options, only if the user set them: `SleepTimer=<ms>`, `PanelBrightness=` (see Sleep and Panel-wide).
 5. Push all LED and display state.
 6. `ping` periodically; treat a missing `ack` as link loss.
 
@@ -43,7 +43,7 @@ Optional: `Connections?` → `_connections=<ip>;<ip>;…` [C#].
 - With the cable pulled, the OS reported no socket error for ~10 s [HW]. Detect loss only by `ping`/`ack` timeout. Round trip 1.4–18 ms, median 12.5 ms.
 - [C#] reference: ping every 100 ms, dead-man 300 ms (after 1 s grace), reconnect backoff 1 s doubling to 30 s, connect timeout 2 s, backoff resets only after an `ack`.
 - Up to 7–8 clients. Every client gets every input event; replies go only to the asker; LEDs and displays are shared, last writer wins [HW].
-- A client flooding the panel delayed the other client's `ack`s past 300 ms [HW]. This is why our writes are rate-limited: PTZJoystickControl's 300 ms dead-man stops the cameras.
+- A client flooding the panel delayed another client's `ack`s past 300 ms [HW]. The panel has one queue: flooding slows input and `ack`s for every client. Rate-limit writes (see Flow control).
 - `HeartBeatTimer=<ms>` makes the panel ping the client and drop it after 2 s silence [V2]. Not verified on v2.5.27. It is a panel setting: ask the user before sending it.
 
 ## Output commands (client → panel)
@@ -91,20 +91,23 @@ Renderings:
 
 Display sizes on this panel [HW]: 64×32 on the buttons, 112×32 on the knobs. Monochrome bitmaps exist (`HWCg#id=0/<last>,<w>x<h>:<b64>`, lines under ~250 chars) but are untested here.
 
-### Panel-wide (ask the user first; these are panel settings)
+### Panel-wide (panel settings)
 
 `Clear`, `ClearLEDs`, `ClearDisplays`, `PanelBrightness=<leds>,<oleds>` (0–8), `DimmedGain=<0..64>`, `encoderPressMode=`, `HeartBeatTimer=`, `SleepMode=`, `SleepScreenSaver=`.
+
+- The plugin sends none of these by default. `PanelBrightness=` is an opt-in option tied to Companion's brightness (`setBrightness` 0–100 mapped to 0–8).
+- During testing, ask the user before sending any of them to the real panel.
 
 ## Input events (panel → client)
 
 Regex [LIB]: `^HWC#([0-9]+)(|.([0-9]+))=(Down|Up|Press|Abs|Speed|Enc)(|:([-0-9,]+))$`
 
 - **Buttons:** `HWC#63=Down` / `HWC#63=Up`, no auto-repeat [HW]. An `Up` without a `Down` happens after a wake press.
-- **Four-way buttons:** `HWC#<id>.<edge>=Down|Up`, edge 1 top, 2 left, 4 bottom, 8 right. No centre event: a centre press reports whichever edge closes first [HW].
+- **Four-way buttons:** `HWC#<id>.<edge>=Down|Up`, edge 1 top, 2 left, 4 bottom, 8 right. No centre event: a centre press reports whichever edge closes first [HW]. Slice 1 treats the HWC as one key: track pressed edges, first edge down = key down, last edge up = key up. Per-edge keys are backlog.
 - **Encoders:** `HWC#<id>=Enc:1` / `Enc:-1`, clockwise positive, one line per detent (as close as ~17 ms) [HW].
 - **Encoder push:** a single `HWC#<id>=Press`, no Down/Up [HW]. [DC] says `Press` repeats after 1 s hold. With `_bluePillReady=1` pushes become Down/Up [V2]. Handle both forms.
-- **Joystick / zoom:** `HWC#58|60|61|62=Speed:<-500..500>`, on change up to ~20 Hz, always ending `Speed:0` [HW]. Owned by PTZJoystickControl: ignore.
-- `Abs:` (0–1000) comes only from faders (`av`/`ah`/`ar`); the PTZ Extreme has none.
+- **Intensity (joystick, rocker):** `HWC#<id>=Speed:<-500..500>` from `iv`/`ih`/`ir`, on change up to ~20 Hz, always ending `Speed:0` [HW]. On the PTZ Extreme: HWC 58, 60, 61, 62. Exposed as analog input variables.
+- **Absolute (fader, T-bar):** `HWC#<id>=Abs:<0..1000>` from `av`/`ah`/`ar`. The PTZ Extreme has none. Exposed as analog input variables.
 - Other unsolicited lines: `_isSleeping=0|1`, `map=`, `BSY`, `RDY`, `ping`.
 
 ## Topology (`PanelTopology?`)
@@ -128,12 +131,16 @@ Classifying a control (split `in` on `,`):
 | `b`, `b4`, `b2h`, `b2v` | button (`b4` = four-way) |
 | `pb` | encoder with push |
 | `p` | encoder, no push |
-| `av`, `ah`, `ar` | absolute (fader) |
-| `iv`, `ih`, `ir` | intensity (joystick): **ignore**, filter by this, not by id |
+| `av`, `ah`, `ar` | absolute (fader, T-bar): analog input variable |
+| `iv`, `ih`, `ir` | intensity (joystick, rocker): analog input variable |
+
+Classify by `in`, not by id. Analog kinds become `transferVariables`, not layout controls.
 
 `disp` present means a display (`disp.type` `gray`/`color` = more than 1-bit). `out` of `rgb`/`rg`/`mono` means an LED.
 
 ### PTZ Extreme HWC list [HW, from topology]
+
+The first test panel. The plugin builds its layout from topology, so this table is a reference, not a hard-coded map.
 
 58 entries: 51 inputs plus 64–70 as layout placeholders (type 250). Ids 25–36 don't exist.
 
@@ -162,7 +169,7 @@ Only 1, 46 and 57–63 were physically tested.
 ## Sleep [HW unless tagged]
 
 - `SleepTimer=<ms>` (0 = never) echoes `_sleepTimer=<ms>`. `SleepTimer?` queries.
-- The timer is global, survives client disconnect, resets to 14400000 (4 h) on reboot. Send it on every connect.
+- The timer is global, survives client disconnect, resets to 14400000 (4 h) on reboot. The plugin sends it only when the sleep-timeout option is set, and then on every connect.
 - The panel pushes `_isSleeping=1` / `_isSleeping=0` to all clients.
 - `ping` does not keep it awake; joystick movement does. While asleep the joystick sends nothing.
 - A button press wakes it, but its `Down` may be lost.

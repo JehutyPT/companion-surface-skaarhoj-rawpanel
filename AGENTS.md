@@ -1,28 +1,30 @@
 # AGENTS.md
 
-A Bitfocus Companion **surface plugin** (TypeScript) that makes a SKAARHOJ Raw Panel, first the SK_PTZEXTREMEV2, a first-class Companion surface: buttons, encoders, LEDs, display text and the sleep timer, so it can replace Stream Decks. It talks Raw Panel ASCII v1 over TCP 9923 through the plugin's `remote` (`SurfacePluginRemote`).
+A Bitfocus Companion **surface plugin** (TypeScript) that makes any SKAARHOJ Raw Panel a first-class Companion surface: buttons, encoders, LEDs, display text and analog controls. A standalone community plugin, first tested on the SK_PTZEXTREMEV2. It talks Raw Panel ASCII v1 over TCP 9923 through the plugin's `remote` (`SurfacePluginRemote`).
 
-Spec, decisions and history: [JehutyPT/companion-surface-skaarhoj-rawpanel#1](https://github.com/JehutyPT/companion-surface-skaarhoj-rawpanel/issues/1). Read it before changing scope.
+Spec, decisions, slices and backlog: [JehutyPT/companion-surface-skaarhoj-rawpanel#1](https://github.com/JehutyPT/companion-surface-skaarhoj-rawpanel/issues/1). Read it before changing scope.
 
 ## Reference
 
-- **Protocol** (commands, input events, topology, sleep, flow control, the PTZ Extreme HWC table): [docs/raw-panel-protocol.md](docs/raw-panel-protocol.md). Measured panel behaviour lives upstream in [PTZJoystickControl `docs/skaarhoj-integration.md`](https://github.com/JehutyPT/PTZJoystickControl/blob/main/docs/skaarhoj-integration.md).
-- **Surface API** (version compatibility, remote flow, layout, draw props, dev loading): [docs/surface-api-notes.md](docs/surface-api-notes.md).
+- **Protocol** (commands, input events, topology, sleep, flow control, the PTZ Extreme HWC table): [docs/raw-panel-protocol.md](docs/raw-panel-protocol.md). Measured panel behaviour lives in [PTZJoystickControl `docs/skaarhoj-integration.md`](https://github.com/JehutyPT/PTZJoystickControl/blob/main/docs/skaarhoj-integration.md).
+- **Surface API** (version compatibility, remote flow, layout, draw props, transfer variables, dev loading): [docs/surface-api-notes.md](docs/surface-api-notes.md).
 - Upstream: bitfocus/companion-surface-api (tag `companion-surface-base-v1.4.1`), bitfocus/companion-surface-loupedeck (scaffold), bitfocus/companion-surface-elgato-stream-deck `src/remote.ts` (network pattern), SKAARHOJ/rawpanel-lib (protocol, has its own CLAUDE.md).
 
-## The panel is shared
+## Rules
 
-PTZJoystickControl is a second Raw Panel client on the same panel. It owns the joystick and stops the cameras if its 300 ms ping/ack dead-man trips. Every rule below protects it or the panel's settings:
-
-- **Ignore intensity controls.** Topology `in` of `iv`/`ih`/`ir` (HWC 58 zoom, 60, 61, 62 joystick) is never declared as a surface control. Classify by topology type, not by hard-coded id. HWC 63 (the stick's top button) is an ordinary button and is ours.
-- **Rate-limit every write.** Send diffs, coalesce per HWC, pace the queue, honour `BSY`. A flooded panel delays the other client's `ack`s.
-- **Own the sleep timer.** Send `SleepTimer=1800000` on every connect (the panel resets it to 4 h on reboot). Re-push all LED and display state on connect and on `_isSleeping=0`. Tolerate the >300 ms stall after connect and wake.
-- **Companion owns logic.** Key presses and encoder turns go to Companion through `SurfaceContext`. The plugin sets no Companion variables (in particular never `Joystick_Controlled_Camera`).
+- **Build from topology.** Read `PanelTopology?` and build the layout from it, positions from the physical coordinates. Classify controls by topology `in` type, never by hard-coded HWC id or model. Must work on any Raw Panel.
+- **Analog controls are input transfer variables.** `iv`/`ih`/`ir`/`av`/`ah`/`ar` (rockers, joystick axes, faders, T-bars) are not layout controls. Declare one `transferVariables` entry (type `input`) per axis and send its numeric value with `context.sendVariableValue`: only on change, with a small deadband, coalesced to at most one send per 50 ms.
+- **Four-way buttons are one key** (slice 1): any edge down is key down, all edges up is key up. Per-edge keys are backlog.
+- **Be gentle with the panel.** Send diffs only, coalesce per HWC, pace the write queue, honour `BSY`. The panel has one queue shared by all clients.
+- **Re-push on connect and wake.** The panel blanks LEDs and displays on connect: push full state on connect and on `_isSleeping=0`. Tolerate the stall (>300 ms) after connect and wake.
+- **Panel settings are opt-in.** Send `SleepTimer=` or `PanelBrightness=` only when the user has set the matching option. Default is to leave the panel's settings alone.
+- **Layout-affecting settings are remote connection `configFields`.** They arrive before `openSurface`; saving one reconnects.
+- **Companion owns logic.** Keys, encoder turns and analog values go to Companion through `SurfaceContext`. The plugin holds no button logic of its own.
 
 ## Ask the user first
 
 - Before connecting to the real panel (192.168.1.163:9923). Develop and test against a fake panel.
-- Before sending any panel setting: `Clear`, `ClearLEDs`, `ClearDisplays`, `encoderPressMode=`, `HeartBeatTimer=`, `PanelBrightness=`, `SleepMode=`, `SleepScreenSaver=`, and `SleepTimer=` during testing. The shipped behaviour of sending `SleepTimer=1800000` is approved.
+- Before sending the real panel any setting during testing: `Clear`, `ClearLEDs`, `ClearDisplays`, `encoderPressMode=`, `HeartBeatTimer=`, `PanelBrightness=`, `SleepMode=`, `SleepScreenSaver=`, `SleepTimer=`.
 
 ## Versions
 
