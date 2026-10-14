@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { LoggingSink } from '@companion-surface/base'
-import { Harness } from './helpers/harness.js'
+import { fastTimings, Harness } from './helpers/harness.js'
 import { sleep, waitFor } from './helpers/fake-panel.js'
 import { ptzExtremeTopology, smallTopology } from './fixtures/topologies.js'
 
@@ -109,7 +109,10 @@ describe('topology is required', () => {
 	})
 
 	test('backs off between retries', async () => {
-		harness = new Harness({ topology: null })
+		harness = new Harness(
+			{ topology: null },
+			{ ...fastTimings, topologyTimeoutMs: 100, backoffInitialMs: 100, backoffMaxMs: 1000 },
+		)
 		await harness.start()
 		await harness.connect()
 
@@ -123,9 +126,9 @@ describe('topology is required', () => {
 			'4 attempts',
 		)
 
-		// Each attempt waits the 300 ms topology timeout, then 20, 40, 80 ms of backoff.
+		// Each attempt waits the 100 ms topology timeout, then 100, 200, 400 ms of backoff.
 		const gaps = times.slice(1).map((t, i) => t - times[i])
-		expect(gaps[2] - gaps[0]).toBeGreaterThanOrEqual(40)
+		expect(gaps[2] - gaps[0]).toBeGreaterThanOrEqual(200)
 	})
 })
 

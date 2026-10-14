@@ -122,6 +122,8 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 			this.#pending.delete(key)
 			return
 		}
+		// Re-insert so the queue keeps the order the commands were last written in (colour before state).
+		this.#pending.delete(key)
 		this.#pending.set(key, line)
 		this.#scheduleFlush()
 	}

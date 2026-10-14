@@ -67,7 +67,7 @@ export class RawPanelSurface implements SurfaceInstance {
 		if (this.#closed) return
 		this.#closed = true
 		this.#listen(false)
-		this.#releaseAll()
+		this.#held.clear()
 		this.#link.detach(this)
 	}
 
