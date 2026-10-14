@@ -15,6 +15,7 @@ export const fastTimings: Partial<ConnectionTimings> = {
 	writeIntervalMs: 2,
 	writeBurst: 50,
 	busyTimeoutMs: 300,
+	rejectRetryMs: 20,
 }
 
 /**

@@ -28,6 +28,8 @@ export interface ConnectionTimings {
 	writeBurst: number
 	/** Resume writing this long after `BSY` if neither `RDY` nor a panel `ping` has arrived */
 	busyTimeoutMs: number
+	/** First delay before announcing the surface again after Companion rejects it; doubles up to `backoffMaxMs` */
+	rejectRetryMs: number
 }
 
 export const DEFAULT_TIMINGS: ConnectionTimings = {
@@ -40,6 +42,7 @@ export const DEFAULT_TIMINGS: ConnectionTimings = {
 	writeIntervalMs: 20,
 	writeBurst: 8,
 	busyTimeoutMs: 1000,
+	rejectRetryMs: 1000,
 }
 
 /** Longest inbound line accepted. Topology lines are tens of kB. */

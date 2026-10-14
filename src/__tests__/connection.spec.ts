@@ -237,6 +237,93 @@ describe('link liveness and reconnect', () => {
 	})
 })
 
+describe('Companion declines or still holds the surface', () => {
+	test('asks Companion to drop the surface once, even if the connection is removed before it closes', async () => {
+		harness = new Harness({ topology: smallTopology })
+		await harness.start()
+		await harness.connect()
+		const { context } = await harness.open(await harness.waitForAnnouncements())
+		const disconnects = () => context.calls.filter((c) => c[0] === 'disconnect')
+
+		harness.panel.options.topology = ptzExtremeTopology
+		harness.panel.dropClients()
+		await waitFor(() => disconnects().length > 0, 2000, 'the topology-change disconnect')
+		await harness.plugin.remote!.stopConnections(['conn1'])
+		await sleep(30)
+
+		expect(disconnects()).toEqual([['disconnect', 'Panel topology changed']])
+	})
+
+	test('announces the surface again after Companion rejects it', async () => {
+		harness = new Harness({ topology: smallTopology })
+		await harness.start()
+		await harness.connect()
+		const first = await harness.waitForAnnouncements()
+
+		harness.plugin.remote!.rejectSurface(first)
+
+		const second = await harness.waitForAnnouncements(2)
+		expect(second.surfaceId).toBe(first.surfaceId)
+		expect(second.deviceHandle).not.toBe(first.deviceHandle)
+		await expect(harness.open(first)).rejects.toThrow()
+		await harness.open(second)
+	})
+
+	test('keeps announcing, backing off, while Companion keeps rejecting', async () => {
+		harness = new Harness({ topology: smallTopology }, { ...fastTimings, rejectRetryMs: 50, backoffMaxMs: 1000 })
+		await harness.start()
+		await harness.connect()
+		const times = [Date.now()]
+
+		for (let n = 1; n <= 3; n++) {
+			harness.plugin.remote!.rejectSurface(await harness.waitForAnnouncements(n))
+			await harness.waitForAnnouncements(n + 1)
+			times.push(Date.now())
+		}
+
+		// 50, 100 then 200 ms between a rejection and the next announcement
+		expect(times[3] - times[2]).toBeGreaterThanOrEqual(180)
+		expect(times[2] - times[1]).toBeLessThan(180)
+	})
+
+	test('a rejection of an announcement that is no longer current is ignored', async () => {
+		harness = new Harness({ topology: smallTopology })
+		await harness.start()
+		await harness.connect()
+		const first = await harness.waitForAnnouncements()
+		harness.plugin.remote!.rejectSurface(first)
+		const second = await harness.waitForAnnouncements(2)
+
+		harness.plugin.remote!.rejectSurface(first)
+		await sleep(150)
+
+		expect(harness.announced).toHaveLength(2)
+		await harness.open(second)
+	})
+
+	test('a panel removed and re-added before its old surface closed comes back once Companion lets it', async () => {
+		harness = new Harness({ topology: smallTopology })
+		await harness.start()
+		await harness.connect('a')
+		const { result: old, context } = await harness.open(await harness.waitForAnnouncements())
+		await harness.plugin.remote!.stopConnections(['a'])
+		expect(context.calls).toContainEqual(['disconnect', 'Connection removed'])
+
+		// Re-added while Companion still holds the old surface: it rejects the new announcement
+		await harness.connect('b')
+		const readded = await harness.waitForAnnouncements(2)
+		expect(readded.surfaceId).toBe('skaarhoj:442845')
+		harness.plugin.remote!.rejectSurface(readded)
+		await old.surface.close()
+
+		const back = await harness.waitForAnnouncements(3)
+		expect(back.surfaceId).toBe(readded.surfaceId)
+		harness.panel.clearReceived()
+		await harness.open(back)
+		await waitFor(() => harness!.panel.commands.includes('HWC#1=0'), 2000, 'the reopened surface to push state')
+	})
+})
+
 describe('connections are shared per address and port', () => {
 	test('two connection entries for one panel share one TCP connection', async () => {
 		harness = new Harness({ topology: smallTopology })

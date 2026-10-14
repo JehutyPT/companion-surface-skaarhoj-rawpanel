@@ -36,11 +36,17 @@ export class RawPanelSurface implements SurfaceInstance {
 	readonly #held = new Map<number, number>()
 	#listening = false
 	#closed = false
+	#disconnectRequested = false
 
 	readonly #onInput = (event: PanelEvent): void => this.#handleInput(event)
 	readonly #onResync = (): void => this.#pushAll()
 	readonly #onOffline = (): void => this.#releaseAll()
-	readonly #onDisconnect = (reason: string): void => this.#context.disconnect(new Error(reason))
+	readonly #onDisconnect = (reason: string): void => {
+		// Companion closes the surface in its own time; ask once even if another reason follows.
+		if (this.#disconnectRequested) return
+		this.#disconnectRequested = true
+		this.#context.disconnect(new Error(reason))
+	}
 
 	constructor(surfaceId: string, productName: string, link: PanelLink, layout: PanelLayout, context: SurfaceContext) {
 		this.surfaceId = surfaceId

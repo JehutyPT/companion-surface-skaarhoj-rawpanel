@@ -118,8 +118,10 @@ export class RawPanelPluginRemoteService
 		}
 	}
 
-	rejectSurface(_surfaceInfo: DetectionSurfaceInfo<RawPanelDeviceInfo>): void {
-		// The link keeps running; it announces again only if the panel or layout changes.
+	rejectSurface(surfaceInfo: DetectionSurfaceInfo<RawPanelDeviceInfo>): void {
+		// Companion may still hold a surface with this id (removed and re-added before it closed):
+		// the link announces again after a backoff.
+		surfaceInfo.pluginInfo.link.rejected(surfaceInfo.pluginInfo)
 	}
 
 	#release(key: string): void {

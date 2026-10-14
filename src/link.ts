@@ -2,12 +2,14 @@
  * A PanelLink is one panel at one `address:port`: it owns the connection and decides when
  * Companion is told about the surface. The surface is announced once per link; reconnects with the
  * same panel and layout are absorbed here (the open surface re-pushes its state), and only a
- * changed panel or layout replaces the surface.
+ * changed panel or layout replaces the surface. If Companion rejects an announcement (typically
+ * because it still holds a surface with the same id, e.g. the connection was removed and re-added
+ * before the old surface closed), the link announces again after a backoff until one is opened.
  */
 import { createModuleLogger, type DetectionSurfaceInfo, type ModuleLogger } from '@companion-surface/base'
 import { randomUUID } from 'node:crypto'
 import EventEmitter from 'node:events'
-import { PanelConnection, type ConnectionTimings, type PanelIdentity } from './connection.js'
+import { DEFAULT_TIMINGS, PanelConnection, type ConnectionTimings, type PanelIdentity } from './connection.js'
 import type { PanelCommand, PanelEvent } from './protocol.js'
 import { buildLayout, type PanelLayout, type Topology } from './topology.js'
 
@@ -38,6 +40,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	readonly #connection: PanelConnection
 	readonly #announce: (info: DetectionSurfaceInfo<RawPanelDeviceInfo>) => void
 	readonly #logger: ModuleLogger
+	readonly #timings: ConnectionTimings
 	readonly #loggedUnknown = new Set<string>()
 
 	#stopped = false
@@ -47,6 +50,8 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	#deviceHandle: string | undefined
 	#surface: PanelSurfaceHandle | undefined
 	#reannounceOnClose = false
+	#rejectTimer: NodeJS.Timeout | undefined
+	#rejectRetryMs: number
 
 	constructor(
 		address: string,
@@ -58,8 +63,10 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		this.address = address
 		this.port = port
 		this.#announce = announce
+		this.#timings = { ...DEFAULT_TIMINGS, ...timings }
+		this.#rejectRetryMs = this.#timings.rejectRetryMs
 		this.#logger = createModuleLogger(`Link/${address}:${port}`)
-		this.#connection = new PanelConnection(address, port, timings)
+		this.#connection = new PanelConnection(address, port, this.#timings)
 		this.#connection.on('online', (identity) => this.#onOnline(identity))
 		this.#connection.on('offline', () => this.emit('offline'))
 		this.#connection.on('event', (event) => {
@@ -92,6 +99,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		if (this.#stopped) return
 		this.#stopped = true
 		this.#reannounceOnClose = false
+		clearTimeout(this.#rejectTimer)
 		this.#connection.stop()
 		this.#deviceHandle = undefined
 		if (this.#surface) this.emit('disconnect', 'Connection removed')
@@ -105,6 +113,26 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	/** Called by the surface instance when it opens. */
 	attach(surface: PanelSurfaceHandle): void {
 		this.#surface = surface
+		clearTimeout(this.#rejectTimer)
+		this.#rejectRetryMs = this.#timings.rejectRetryMs
+	}
+
+	/**
+	 * Companion rejected the announcement `info`. Announce again after a delay that doubles per
+	 * rejection; a rejection of an announcement that is no longer current is ignored.
+	 */
+	rejected(info: RawPanelDeviceInfo): void {
+		if (this.#stopped || this.#surface || info.deviceHandle !== this.#deviceHandle) return
+		this.#deviceHandle = undefined
+		const delay = this.#rejectRetryMs
+		this.#rejectRetryMs = Math.min(delay * 2, this.#timings.backoffMaxMs)
+		this.#logger.info(`Companion rejected surface ${this.#surfaceId}; announcing it again in ${delay} ms`)
+		clearTimeout(this.#rejectTimer)
+		this.#rejectTimer = setTimeout(() => {
+			// A reconnect meanwhile announces by itself (no current handle), so check before announcing.
+			if (this.#stopped || this.#surface || this.#deviceHandle !== undefined || !this.#connection.isOnline) return
+			this.#doAnnounce()
+		}, delay)
 	}
 
 	/** Called by the surface instance when it closes. */
@@ -130,7 +158,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		const surfaceId = identity.serial ? `skaarhoj:${identity.serial}` : `skaarhoj:${this.address}:${this.port}`
 		this.#logUnknownControls(identity.topology)
 		const layout = buildLayout(identity.topology)
-		const same = surfaceId === this.#surfaceId && layout.signature === this.#layout?.signature
+		const samePanelAndLayout = surfaceId === this.#surfaceId && layout.signature === this.#layout?.signature
 
 		this.#surfaceId = surfaceId
 		this.#description = `SKAARHOJ ${identity.model ?? 'Raw Panel'}`
@@ -138,7 +166,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 
 		if (this.#deviceHandle === undefined) {
 			this.#doAnnounce()
-		} else if (same) {
+		} else if (samePanelAndLayout) {
 			this.emit('resync')
 		} else if (this.#surface) {
 			// Companion still holds the old surface until it closes it; announce the new one after that.
