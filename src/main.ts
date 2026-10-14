@@ -7,9 +7,9 @@ import {
 import type { ConnectionTimings } from './connection.js'
 import { RawPanelSurface } from './instance.js'
 import type { RawPanelDeviceInfo } from './link.js'
-import { surfaceConfigFields } from './settings.js'
-import type { AnalogAxis } from './topology.js'
 import { RawPanelPluginRemoteService } from './remote.js'
+import { surfaceConfigFields } from './settings.js'
+import { axisTransferVariable } from './topology.js'
 
 export type { RawPanelDeviceInfo } from './link.js'
 
@@ -53,23 +53,11 @@ export function createRawPanelPlugin(options: RawPanelPluginOptions = {}): Surfa
 					pincodeMap: null,
 					location: `${link.address}:${link.port}`,
 					configFields: surfaceConfigFields,
-					transferVariables: layout.axes.length
-						? layout.axes.map((axis) => ({
-								id: axis.variableId,
-								type: 'input' as const,
-								name: axis.name,
-								description: axisDescription(axis),
-							}))
-						: undefined,
+					transferVariables: layout.axes.length ? layout.axes.map(axisTransferVariable) : undefined,
 				},
 			}
 		},
 	}
-}
-
-function axisDescription(axis: AnalogAxis): string {
-	const range = axis.mode === 'Speed' ? '-500 to 500, 0 at rest' : '0 to 1000'
-	return `Raw value ${range}. Create a custom variable (suggested name: ${axis.suggestedVariable}, with "persist value" off) and pick it here.`
 }
 
 const RawPanelPlugin = createRawPanelPlugin()

@@ -143,15 +143,15 @@ interface SurfaceInputVariable {
 
 - One input variable per axis (`iv`/`ih`/`ir`/`av`/`ah`/`ar`), numeric value.
 - Send only on change, with a small deadband, coalesced to at most one send per 50 ms (~20 Hz, Companion's variable-trigger throttle).
-- The surface settings show, per transfer variable, a dropdown of the user's existing custom variables, with no default. A plugin cannot create or preselect them, and page exports don't include custom variables. So tooltips and HELP.md suggest names (`skaarhoj_zoom`, `skaarhoj_joy_x`, …) for the user to create once.
+- The surface settings show, per transfer variable, a dropdown of the user's existing custom variables, with no default. A plugin cannot create or preselect them, and page exports don't include custom variables. So tooltips and HELP.md suggest names (`skaarhoj_zoom`, `skaarhoj_lr`, …) for the user to create once.
 - Recommend "persist value" off on those custom variables; otherwise each change is a database write.
 
 What the plugin does (`src/analog.ts`, `buildAxes` in `src/topology.ts`):
 
 - Variable id `hwc_<n>`; name from the topology type's `desc`, else the HWC's `txt`, plus `(HWC n)` (e.g. `4-Axis Joystick, Left-Right (HWC 60)`). The description gives the raw range and suggests `skaarhoj_<txt>` (`skaarhoj_zoom`, `skaarhoj_lr`, `skaarhoj_ud`, `skaarhoj_rotate` on the PTZ Extreme), with `_<n>` added when two axes share a label and `skaarhoj_hwc_<n>` with no label.
-- Deadband 6 panel units; 0 and the ends of travel (|v| ≥ 500) always bypass it, so the return to centre is never swallowed. First change after 50 ms idle goes out at once; later ones within the window collapse into one trailing send of the latest value.
-- Intensity axes (`Speed`) send 0 when the surface opens, when the link drops and when the surface closes, so a camera never keeps moving on a stale value. Absolute axes (`Abs`) have no rest position and keep their value.
-- While Companion is locked, non-zero values are dropped but 0 still goes out (mirrors encoders, which are ignored while locked). Whether the host itself drops variable values while locked is unverified.
+- Deadband 6 panel units. An intensity value within 6 of 0 counts as 0, so an axis resting slightly off centre reads 0. 0 and the ends of travel (±500 for `Speed`, 0 and 1000 for `Abs`) always bypass the deadband, so the return to centre is never swallowed. First change after 50 ms idle goes out at once; later ones within the window collapse into one trailing send of the latest value.
+- Intensity axes (`Speed`) send 0 on `ready()` (not `init()`: Companion 5.1 drops variable values sent before the surface is registered, logging "Received input variable value for unknown surface"), when the link drops and when the surface closes, so a camera never keeps moving on a stale value. Absolute axes (`Abs`) have no rest position and keep their value.
+- While Companion is locked, non-zero values (including one already queued) are dropped but 0 still goes out (mirrors encoders, which are ignored while locked). Whether the host itself drops variable values while locked is unverified.
 - The axes are part of the layout signature: transfer variables are fixed at open, like the layout.
 
 ## Panel settings (per-surface `configFields`)

@@ -6,7 +6,7 @@ import type { SomeCompanionInputField } from '@companion-surface/base'
 import type { PanelCommand } from './protocol.js'
 
 /** Dropdown value meaning "leave the panel's sleep timer alone" */
-export const SLEEP_TIMER_UNCHANGED = 'panel'
+const SLEEP_TIMER_UNCHANGED = 'panel'
 
 const MINUTE = 60_000
 
@@ -49,22 +49,24 @@ export interface PanelSettings {
 export const DEFAULT_PANEL_SETTINGS: PanelSettings = { sleepTimerMs: undefined, linkBrightness: false }
 
 export function parsePanelSettings(config: Record<string, unknown>): PanelSettings {
-	const sleep = config.sleepTimer
-	const sleepTimerMs =
-		sleep === SLEEP_TIMER_UNCHANGED || sleep === undefined || sleep === null || sleep === '' ? NaN : Number(sleep)
-	return {
-		sleepTimerMs: Number.isInteger(sleepTimerMs) && sleepTimerMs >= 0 ? sleepTimerMs : undefined,
-		linkBrightness: config.linkBrightness === true,
-	}
+	return { sleepTimerMs: parseSleepTimer(config.sleepTimer), linkBrightness: config.linkBrightness === true }
+}
+
+/** A sleep timeout in ms (0 = never), or undefined for "leave the panel's setting" or anything invalid. */
+function parseSleepTimer(value: unknown): number | undefined {
+	if (typeof value !== 'number' && typeof value !== 'string') return undefined
+	if (value === SLEEP_TIMER_UNCHANGED || value === '') return undefined
+	const ms = Number(value)
+	return Number.isInteger(ms) && ms >= 0 ? ms : undefined
 }
 
 /** `SleepTimer=<ms>`; the panel echoes `_sleepTimer=<ms>`. */
-export function sleepTimerCommand(ms: number): PanelCommand {
+function sleepTimerCommand(ms: number): PanelCommand {
 	return { key: 'SleepTimer', line: `SleepTimer=${ms}` }
 }
 
 /** `PanelBrightness=<leds>,<displays>`, each 0-8, from Companion's 0-100. */
-export function panelBrightnessCommand(percent: number): PanelCommand {
+function panelBrightnessCommand(percent: number): PanelCommand {
 	const level = Math.max(0, Math.min(8, Math.round((percent / 100) * 8)))
 	return { key: 'PanelBrightness', line: `PanelBrightness=${level},${level}` }
 }

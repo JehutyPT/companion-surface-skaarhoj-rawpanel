@@ -81,8 +81,6 @@ export class RawPanelSurface implements SurfaceInstance {
 		this.#listen(true)
 		// The panel blanked itself on connect; make our view of it explicit.
 		this.#pushAll()
-		// Joysticks and rockers start at rest
-		this.#analog.rest()
 	}
 
 	async close(): Promise<void> {
@@ -102,7 +100,9 @@ export class RawPanelSurface implements SurfaceInstance {
 	}
 
 	async ready(): Promise<void> {
-		// Nothing to prepare
+		// Joysticks and rockers start at rest. Not in init(): Companion has not registered the surface
+		// yet and drops variable values sent before ready().
+		this.#analog.rest()
 	}
 
 	async setBrightness(percent: number): Promise<void> {

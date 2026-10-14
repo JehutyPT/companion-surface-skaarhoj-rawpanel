@@ -26,9 +26,9 @@ The panel appears as a surface named after its model. Its button grid follows th
 
 ### Joystick, zoom rocker and faders
 
-Each analog axis sends the panel's raw value to a Companion custom variable: -500 to 500 for joysticks and rockers (0 at rest), 0 to 1000 for faders and T-bars. Values are sent at most 20 times a second per axis, ignore tiny jitter, and always end on the final value, including the return to 0. If the connection drops, joysticks and rockers are set back to 0.
+Each analog axis sends the panel's raw value to a Companion custom variable: -500 to 500 for joysticks and rockers (0 at rest), 0 to 1000 for faders and T-bars. Values are sent at most 20 times a second per axis, ignore tiny jitter (a joystick resting a few steps off centre reads 0), and always end on the final value, including the return to 0. If the connection drops, joysticks and rockers are set back to 0.
 
-Companion can't let the plugin create these variables, so set them up once:
+The plugin can't create these variables or preselect them in the surface settings, so set them up once:
 
 1. In **Variables** → **Custom Variables**, create one variable per axis. Suggested names on the PTZ Extreme: `skaarhoj_zoom` (zoom rocker), `skaarhoj_lr` (joystick left-right), `skaarhoj_ud` (joystick up-down), `skaarhoj_rotate` (joystick rotate). Turn **persist value** off: the values change many times a second.
 2. In **Surfaces**, open the panel's settings. Each axis is listed by name (for example "4-Axis Joystick, Left-Right (HWC 60)"); pick the custom variable for it.

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { LoggingSink } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
 import { sleep, waitFor } from './helpers/fake-panel.js'
-import type { ContextCall } from './helpers/fake-context.js'
+import { FakeSurfaceContext, type ContextCall } from './helpers/fake-context.js'
 import { ptzExtremeTopology } from './fixtures/topologies.js'
 
 let harness: Harness | undefined
@@ -42,7 +42,7 @@ describe('analog transfer variables', () => {
 				id: 'hwc_58',
 				type: 'input',
 				name: 'Elastomer Zoom Rocker (HWC 58)',
-				description: expect.stringContaining('skaarhoj_zoom'),
+				description: expect.stringMatching(/can't create or preselect.*skaarhoj_zoom/),
 			},
 			{
 				id: 'hwc_60',
@@ -115,6 +115,23 @@ describe('analog values', () => {
 		])
 	})
 
+	test('the rest values wait for ready(): Companion drops variable values before the surface is registered', async () => {
+		harness = new Harness({ topology: ptzExtremeTopology })
+		await harness.start()
+		await harness.connect()
+		const info = await harness.waitForAnnouncements()
+		const context = new FakeSurfaceContext()
+		const result = await harness.plugin.openSurface(info.surfaceId, info.pluginInfo, context)
+		harness.opened.push(result)
+		await result.surface.init()
+		await sleep(30)
+		expect(variables(context.calls)).toEqual([])
+
+		await result.surface.ready()
+
+		expect(variables(context.calls).map((c) => c[1])).toEqual(['hwc_58', 'hwc_60', 'hwc_61', 'hwc_62'])
+	})
+
 	test('a move sends the raw panel value at once', async () => {
 		const { context, panel } = await openSurface()
 		context.calls.length = 0
@@ -178,6 +195,55 @@ describe('analog values', () => {
 			['variable', 'hwc_60', 40],
 			['variable', 'hwc_60', 0],
 		])
+	})
+
+	test('an intensity axis resting a few units off centre reads 0', async () => {
+		const { context, panel } = await openSurface()
+		context.calls.length = 0
+
+		panel.send('HWC#62=Speed:-10')
+		await sleep(70)
+		panel.send('HWC#62=Speed:-3')
+		await sleep(70)
+
+		expect(variables(context.calls)).toEqual([
+			['variable', 'hwc_62', -10],
+			['variable', 'hwc_62', 0],
+		])
+	})
+
+	test('on a fader the deadband applies across the whole travel; only 0 and 1000 bypass it', async () => {
+		const { context, panel } = await openSurface({
+			HWc: [
+				{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
+				{ id: 5, x: 300, y: 100, txt: 'Fader', type: 2 },
+			],
+			typeIndex: { '1': { w: 100, in: 'b', out: 'rgb' }, '2': { w: 100, in: 'av' } },
+		})
+
+		for (const v of [700, 703, 997, 1000]) {
+			panel.send(`HWC#5=Abs:${v}`)
+			await sleep(70)
+		}
+
+		expect(variables(context.calls)).toEqual([
+			['variable', 'hwc_5', 700],
+			['variable', 'hwc_5', 997],
+			['variable', 'hwc_5', 1000],
+		])
+	})
+
+	test('a value queued just before Companion locks is not sent', async () => {
+		const { context, panel } = await openSurface()
+		await sleep(60)
+		context.calls.length = 0
+
+		panel.send('HWC#60=Speed:100', 'HWC#60=Speed:200')
+		await waitFor(() => variables(context.calls).length >= 1)
+		context.locked = true
+		await sleep(70)
+
+		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', 100]])
 	})
 
 	test('a deflected axis returns to 0 when the link drops, so nothing keeps moving', async () => {

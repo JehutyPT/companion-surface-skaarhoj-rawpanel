@@ -107,7 +107,7 @@ Regex [LIB]: `^HWC#([0-9]+)(|.([0-9]+))=(Down|Up|Press|Abs|Speed|Enc)(|:([-0-9,]
 - **Four-way buttons:** `HWC#<id>.<edge>=Down|Up`, edge 1 top, 2 left, 4 bottom, 8 right. No centre event: a centre press reports whichever edge closes first [HW]. Slice 1 treats the HWC as one key: track pressed edges, first edge down = key down, last edge up = key up. Per-edge keys are backlog.
 - **Encoders:** `HWC#<id>=Enc:1` / `Enc:-1`, clockwise positive, one line per detent (as close as ~17 ms) [HW].
 - **Encoder push:** a single `HWC#<id>=Press`, no Down/Up [HW]. [DC] says `Press` repeats after 1 s hold. With `_bluePillReady=1` pushes become Down/Up [V2]. Handle both forms.
-- **Intensity (joystick, rocker):** `HWC#<id>=Speed:<-500..500>` from `iv`/`ih`/`ir`, on change up to ~20 Hz, normally ending `Speed:0` [HW]; the joystick rotate axis can come to rest a few units off 0 (the joystick capture ends on `HWC#62=Speed:-3`), which the plugin's deadband absorbs. On the PTZ Extreme: HWC 58, 60, 61, 62. Exposed as analog input variables.
+- **Intensity (joystick, rocker):** `HWC#<id>=Speed:<-500..500>` from `iv`/`ih`/`ir`, on change up to ~20 Hz, normally ending `Speed:0` [HW]; the joystick rotate axis can come to rest a few units off 0 (the joystick capture ends on `HWC#62=Speed:-3`), which the plugin reads as 0 (intensity values within its deadband of 0 count as 0). On the PTZ Extreme: HWC 58, 60, 61, 62. Exposed as analog input variables.
 - **Absolute (fader, T-bar):** `HWC#<id>=Abs:<0..1000>` from `av`/`ah`/`ar`. The PTZ Extreme has none. Exposed as analog input variables.
 - Other unsolicited lines: `_isSleeping=0|1`, `map=`, `BSY`, `RDY`, `ping`.
 

@@ -3,6 +3,9 @@
  * See docs/raw-panel-protocol.md.
  */
 
+/** `Speed` (intensity: joystick, rocker, -500..500, rests at 0) or `Abs` (absolute: fader, T-bar, 0..1000) */
+export type AnalogMode = 'Speed' | 'Abs'
+
 export type PanelEvent =
 	/** `_key=value` reply or unsolicited state, split on the first `=` */
 	| { type: 'reply'; key: string; value: string }
@@ -13,7 +16,7 @@ export type PanelEvent =
 	/** `HWC#n=Enc:±d` */
 	| { type: 'encoder'; hwc: number; delta: number }
 	/** `HWC#n=Speed:v` or `HWC#n=Abs:v` */
-	| { type: 'analog'; hwc: number; mode: 'Speed' | 'Abs'; value: number }
+	| { type: 'analog'; hwc: number; mode: AnalogMode; value: number }
 	| { type: 'ack' }
 	| { type: 'ping' }
 	| { type: 'busy' }

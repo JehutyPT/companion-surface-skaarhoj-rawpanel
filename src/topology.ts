@@ -3,7 +3,10 @@
  * Companion surface layout from their physical positions. Nothing here knows about a model or a
  * specific HWC id; everything comes from the report.
  */
-import type { SurfaceSchemaLayoutDefinition } from '@companion-surface/base'
+import type { SurfaceInputVariable, SurfaceSchemaLayoutDefinition } from '@companion-surface/base'
+import type { AnalogMode } from './protocol.js'
+
+export type { AnalogMode } from './protocol.js'
 
 export type ControlKind =
 	/** `b`, `b2h`, `b2v`, `b4`: a key (edges of multi-way buttons collapse to one key) */
@@ -67,8 +70,18 @@ export interface AnalogAxis {
 	name: string
 	/** The custom variable name suggested to the user, e.g. `skaarhoj_lr` */
 	suggestedVariable: string
-	/** `Speed` (intensity: joystick, rocker, -500..500, rests at 0) or `Abs` (absolute: fader, T-bar, 0..1000) */
-	mode: 'Speed' | 'Abs'
+	mode: AnalogMode
+}
+
+/** The Companion input transfer variable for an axis. */
+export function axisTransferVariable(axis: AnalogAxis): SurfaceInputVariable {
+	const range = axis.mode === 'Speed' ? '-500 to 500, 0 at rest' : '0 to 1000'
+	return {
+		id: axis.variableId,
+		type: 'input',
+		name: axis.name,
+		description: `Raw value ${range}. The plugin can't create or preselect a variable here: create a custom variable once (suggested name: ${axis.suggestedVariable}, with "persist value" off) and pick it.`,
+	}
 }
 
 export interface PanelLayout {
@@ -361,7 +374,10 @@ function buildAxes(topology: Topology): AnalogAxis[] {
 	}
 	const analog = [...byHwc.values()].sort((a, b) => a.hwc - b.hwc)
 	const labelCounts = new Map<string, number>()
-	for (const c of analog) labelCounts.set(slug(c.label), (labelCounts.get(slug(c.label)) ?? 0) + 1)
+	for (const c of analog) {
+		const label = slug(c.label)
+		labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1)
+	}
 
 	return analog.map((c) => {
 		const label = slug(c.label)

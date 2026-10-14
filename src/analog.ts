@@ -3,7 +3,7 @@
  * panel's raw value, sent only on change past a small deadband, at most once per interval per
  * axis, with a trailing send so the final value always arrives.
  */
-import type { AnalogAxis } from './topology.js'
+import type { AnalogAxis, AnalogMode } from './topology.js'
 
 /** Changes smaller than this (in panel units) are not sent. The joystick jitters by about ±5 at rest. */
 export const ANALOG_DEADBAND = 6
@@ -22,8 +22,8 @@ interface AxisState {
  * Values that always go out when they differ from the last one sent, past the deadband: the rest
  * position (0) and the ends of travel. The return to centre must never be swallowed.
  */
-function bypassesDeadband(value: number): boolean {
-	return value === 0 || Math.abs(value) >= 500
+function bypassesDeadband(mode: AnalogMode, value: number): boolean {
+	return mode === 'Speed' ? value === 0 || Math.abs(value) >= 500 : value <= 0 || value >= 1000
 }
 
 export class AnalogSender {
@@ -46,15 +46,24 @@ export class AnalogSender {
 		}
 	}
 
-	/** A value from the panel. While Companion is locked only the return to centre goes out. */
-	input(hwc: number, value: number): void {
+	/**
+	 * A value from the panel. An intensity axis within the deadband of 0 counts as 0, so an axis that
+	 * comes to rest slightly off centre still reads 0. While Companion is locked only 0 goes out.
+	 */
+	input(hwc: number, raw: number): void {
 		const state = this.#byHwc.get(hwc)
 		if (!state || this.#stopped) return
-		if (value !== 0 && this.#isLocked()) return
+		const mode = state.axis.mode
+		const value = mode === 'Speed' && Math.abs(raw) < ANALOG_DEADBAND ? 0 : raw
+		if (value !== 0 && this.#isLocked()) {
+			state.pending = undefined
+			return
+		}
 
 		const last = state.lastSent
 		const changed =
-			last === undefined || (value !== last && (bypassesDeadband(value) || Math.abs(value - last) >= ANALOG_DEADBAND))
+			last === undefined ||
+			(value !== last && (bypassesDeadband(mode, value) || Math.abs(value - last) >= ANALOG_DEADBAND))
 		if (!changed) {
 			// Back within the deadband of what Companion has: a queued value is now stale.
 			state.pending = undefined
@@ -70,7 +79,9 @@ export class AnalogSender {
 				state.timer = undefined
 				const pending = state.pending
 				state.pending = undefined
-				if (pending !== undefined && !this.#stopped) this.#emit(state, pending)
+				if (pending === undefined || this.#stopped) return
+				if (pending !== 0 && this.#isLocked()) return
+				this.#emit(state, pending)
 			},
 			Math.max(0, state.lastSentAt + ANALOG_INTERVAL_MS - performance.now()),
 		)
@@ -83,20 +94,20 @@ export class AnalogSender {
 	rest(): void {
 		if (this.#stopped) return
 		for (const state of this.#byHwc.values()) {
-			clearTimeout(state.timer)
-			state.timer = undefined
-			state.pending = undefined
+			this.#cancel(state)
 			if (state.axis.mode === 'Speed' && state.lastSent !== 0) this.#emit(state, 0)
 		}
 	}
 
 	stop(): void {
 		this.#stopped = true
-		for (const state of this.#byHwc.values()) {
-			clearTimeout(state.timer)
-			state.timer = undefined
-			state.pending = undefined
-		}
+		for (const state of this.#byHwc.values()) this.#cancel(state)
+	}
+
+	#cancel(state: AxisState): void {
+		clearTimeout(state.timer)
+		state.timer = undefined
+		state.pending = undefined
 	}
 
 	#emit(state: AxisState, value: number): void {
