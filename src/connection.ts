@@ -26,6 +26,8 @@ export interface ConnectionTimings {
 	writeIntervalMs: number
 	/** Most lines sent per burst */
 	writeBurst: number
+	/** Resume writing this long after `BSY` if neither `RDY` nor a panel `ping` has arrived */
+	busyTimeoutMs: number
 }
 
 export const DEFAULT_TIMINGS: ConnectionTimings = {
@@ -37,6 +39,7 @@ export const DEFAULT_TIMINGS: ConnectionTimings = {
 	backoffMaxMs: 30000,
 	writeIntervalMs: 20,
 	writeBurst: 8,
+	busyTimeoutMs: 1000,
 }
 
 /** Longest inbound line accepted. Topology lines are tens of kB. */
@@ -58,6 +61,13 @@ export interface PanelConnectionEvents {
 	event: [event: PanelEvent]
 }
 
+function unknownIdentity(): Omit<PanelIdentity, 'topology'> {
+	return { model: undefined, serial: undefined, version: undefined }
+}
+
+/** How a connection failure is logged: `error` needs the user's attention, `warn` heals itself. */
+type FailureSeverity = 'error' | 'warn'
+
 const CONNECTION_REPLY_KEYS = new Set(['model', 'serial', 'version', 'bluePillReady', 'panelTopology_svgbase'])
 
 export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
@@ -72,13 +82,14 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 	#buffer = ''
 	#lastSeen = 0
 	#backoffMs: number
-	#identity: Omit<PanelIdentity, 'topology'> = { model: undefined, serial: undefined, version: undefined }
+	#identity = unknownIdentity()
 
 	#connectTimer: NodeJS.Timeout | undefined
 	#topologyTimer: NodeJS.Timeout | undefined
 	#pingTimer: NodeJS.Timeout | undefined
 	#reconnectTimer: NodeJS.Timeout | undefined
 	#writeTimer: NodeJS.Timeout | undefined
+	#busyTimer: NodeJS.Timeout | undefined
 
 	#busy = false
 	readonly #pending = new Map<string, string>()
@@ -134,9 +145,9 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 	}
 
 	#connect(): void {
-		this.#identity = { model: undefined, serial: undefined, version: undefined }
+		this.#identity = unknownIdentity()
 		this.#buffer = ''
-		this.#busy = false
+		this.#setBusy(false)
 		this.#pending.clear()
 		this.#lastSent.clear()
 
@@ -155,6 +166,7 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 				() =>
 					this.#fail(
 						`no usable topology within ${this.#timings.topologyTimeoutMs} ms of connecting (PanelTopology? unanswered); the plugin needs the panel's topology to build the layout`,
+						'error',
 					),
 				this.#timings.topologyTimeoutMs,
 			)
@@ -186,15 +198,13 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 				return
 			case 'ping':
 				this.#rawWrite(['ack'])
-				this.#busy = false
-				this.#scheduleFlush()
+				this.#setBusy(false)
 				return
 			case 'busy':
-				this.#busy = true
+				this.#setBusy(true)
 				return
 			case 'ready':
-				this.#busy = false
-				this.#scheduleFlush()
+				this.#setBusy(false)
 				return
 			case 'reply':
 				if (event.key === 'panelTopology_HWC') {
@@ -215,7 +225,7 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		try {
 			topology = parseTopology(json)
 		} catch (e) {
-			this.#fail(`unusable topology: ${e instanceof Error ? e.message : String(e)}`)
+			this.#fail(`unusable topology: ${e instanceof Error ? e.message : String(e)}`, 'error')
 			return
 		}
 		clearTimeout(this.#topologyTimer)
@@ -240,6 +250,24 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		const socket = this.#socket
 		if (!socket || socket.destroyed) return
 		socket.write(lines.map((l) => l + '\n').join(''), 'latin1')
+	}
+
+	/**
+	 * Hold or resume writes. A hold ends on `RDY`, a panel `ping`, or after `busyTimeoutMs`, so the
+	 * queue cannot freeze if the panel sends neither.
+	 */
+	#setBusy(busy: boolean): void {
+		clearTimeout(this.#busyTimer)
+		this.#busyTimer = undefined
+		this.#busy = busy
+		if (busy) {
+			this.#busyTimer = setTimeout(() => {
+				this.#logger.debug(`Still busy after ${this.#timings.busyTimeoutMs} ms with no RDY; resuming writes`)
+				this.#setBusy(false)
+			}, this.#timings.busyTimeoutMs)
+		} else {
+			this.#scheduleFlush()
+		}
 	}
 
 	#scheduleFlush(): void {
@@ -269,6 +297,8 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		clearInterval(this.#pingTimer)
 		clearTimeout(this.#writeTimer)
 		this.#writeTimer = undefined
+		clearTimeout(this.#busyTimer)
+		this.#busyTimer = undefined
 		this.#pending.clear()
 		const socket = this.#socket
 		this.#socket = undefined
@@ -279,7 +309,7 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		}
 	}
 
-	#fail(reason: string): void {
+	#fail(reason: string, severity: FailureSeverity = 'warn'): void {
 		if (!this.#socket) return
 		this.#teardown()
 		const wasOnline = this.#online
@@ -289,8 +319,7 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		const delay = this.#backoffMs
 		this.#backoffMs = Math.min(this.#backoffMs * 2, this.#timings.backoffMaxMs)
 		const message = `${this.host}:${this.port}: ${reason}; reconnecting in ${delay} ms`
-		if (reason.startsWith('no usable topology') || reason.startsWith('unusable topology')) this.#logger.error(message)
-		else this.#logger.warn(message)
+		this.#logger[severity](message)
 		this.#reconnectTimer = setTimeout(() => this.#connect(), delay)
 
 		if (wasOnline) this.emit('offline', reason)

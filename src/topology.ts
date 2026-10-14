@@ -121,9 +121,16 @@ function mergeTypeDef(base: RawTypeDef, override: RawTypeDef | undefined): RawTy
 	return merged
 }
 
+type UsableControl = TopologyControl & { kind: LayoutControl['kind'] }
+
+/** Buttons and encoders become Companion controls; nothing else does. */
+function isUsable(control: TopologyControl): control is UsableControl {
+	return control.kind === 'button' || control.kind === 'encoder' || control.kind === 'encoder-push'
+}
+
 /**
- * Parse the JSON of a `_panelTopology_HWC=` reply. Throws if it is not a usable topology (not
- * JSON, or no `HWc` array).
+ * Parse the JSON of a `_panelTopology_HWC=` reply. Throws if it is not a usable topology: not
+ * JSON, no `HWc` array, or no button or encoder to lay out.
  */
 export function parseTopology(json: string): Topology {
 	let data: unknown
@@ -162,6 +169,7 @@ export function parseTopology(json: string): Topology {
 			h: numberOr0(typeDef.h) || w,
 		})
 	}
+	if (!controls.some(isUsable)) throw new Error('Topology has no buttons or encoders')
 	return { controls }
 }
 
@@ -191,8 +199,6 @@ function rank(items: { centre: number; size: number }[]): number[] {
 	}
 	return result
 }
-
-type UsableControl = TopologyControl & { kind: LayoutControl['kind'] }
 
 /**
  * Move each control that is alone in its row into the nearest row holding more than one control:
@@ -251,7 +257,7 @@ function nearestFreeColumn(occupied: Set<string>, row: number, column: number): 
 export function buildLayout(topology: Topology): PanelLayout {
 	const seen = new Set<number>()
 	const usable = topology.controls
-		.filter((c): c is UsableControl => c.kind === 'button' || c.kind === 'encoder' || c.kind === 'encoder-push')
+		.filter(isUsable)
 		.sort((a, b) => a.hwc - b.hwc)
 		.filter((c) => !seen.has(c.hwc) && seen.add(c.hwc))
 

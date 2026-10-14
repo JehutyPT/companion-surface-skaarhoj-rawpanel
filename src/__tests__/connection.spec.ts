@@ -123,6 +123,31 @@ describe('topology is required', () => {
 		expect(logs.some((l) => l.level === 'error' && /topology/i.test(l.message))).toBe(true)
 	})
 
+	test.each([
+		['an empty HWc list', { HWc: [], typeIndex: {} }],
+		[
+			'only analog, unknown and input-less controls',
+			{
+				HWc: [
+					{ id: 1, x: 100, y: 100, txt: 'Fader', type: 1 },
+					{ id: 2, x: 300, y: 100, txt: 'Mystery', type: 2 },
+					{ id: 3, x: 500, y: 100, txt: 'Label', type: 3 },
+					{ id: 4, x: 700, y: 100, txt: 'Disabled', type: 0 },
+				],
+				typeIndex: { '1': { w: 100, h: 600, in: 'av' }, '2': { w: 100, in: 'zz' }, '3': { w: 400, h: 60 } },
+			},
+		],
+	])('fails the connection with a logged error and retries when the topology has %s', async (_name, topology) => {
+		harness = new Harness({ topology })
+		await harness.start()
+		await harness.connect()
+
+		await waitFor(() => harness!.panel.connectionCount >= 2, 2000, 'a retry')
+
+		expect(harness.announced).toEqual([])
+		expect(logs.some((l) => l.level === 'error' && /no buttons or encoders/i.test(l.message))).toBe(true)
+	})
+
 	test('backs off between retries', async () => {
 		harness = new Harness(
 			{ topology: null },
@@ -157,6 +182,9 @@ describe('link liveness and reconnect', () => {
 		harness.panel.options.answerPings = false
 
 		await waitFor(() => harness!.panel.connectionCount >= 2, 2000, 'a reconnect')
+		// Link loss is expected in the field: a warning, not an error
+		expect(logs.some((l) => l.level === 'warn' && /no reply from the panel/.test(l.message))).toBe(true)
+		expect(logs.filter((l) => l.level === 'error')).toEqual([])
 	})
 
 	test('tolerates acks delayed by a stall shorter than the liveness timeout', async () => {
@@ -275,6 +303,26 @@ describe('flow control', () => {
 
 		await waitFor(() => harness!.panel.commands.includes('HWC#1=4'))
 		expect(harness.panel.commands.filter((l) => l.startsWith('HWCc#1='))).toEqual(['HWCc#1=195'])
+	})
+
+	test('stops holding writes when the panel stays busy past the busy timeout', async () => {
+		harness = new Harness({ topology: smallTopology }, { ...fastTimings, busyTimeoutMs: 150 })
+		await harness.start()
+		await harness.connect()
+		const { result } = await harness.open(await harness.waitForAnnouncements())
+		await waitFor(() => harness!.panel.commands.includes('HWC#10=0'))
+		harness.panel.clearReceived()
+
+		// The real panel sent neither RDY nor ping of its own in captures
+		harness.panel.send('BSY')
+		await sleep(30)
+		const drawnAt = Date.now()
+		await result.surface.draw(new AbortController().signal, { controlId: 'hwc/1', color: '#ff0000', pressed: false })
+		await sleep(60)
+		expect(harness.panel.commands).toEqual([])
+
+		await waitFor(() => harness!.panel.commands.includes('HWC#1=4'), 2000, 'the held write')
+		expect(Date.now() - drawnAt).toBeGreaterThanOrEqual(100)
 	})
 
 	test('sends nothing for a draw that does not change what the panel shows', async () => {
