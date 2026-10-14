@@ -1,6 +1,8 @@
 # companion-surface-skaarhoj-rawpanel
 
-A [Bitfocus Companion](https://bitfocus.io/companion) surface plugin that makes any SKAARHOJ Raw Panel a Companion surface over the Raw Panel TCP protocol: buttons, encoders, LEDs and display text, with analog controls (joysticks, rockers, faders) as input variables. The layout comes from the panel's reported topology. First tested on the PTZ Extreme V2, for which a preset page is planned. Needs Companion 5.1+.
+A [Bitfocus Companion](https://bitfocus.io/companion) surface plugin that makes a SKAARHOJ Raw Panel a Companion surface over the Raw Panel TCP protocol: buttons, encoders, LEDs and display text, with analog controls (joysticks, rockers, faders) as input variables. Needs Companion 5.1+.
+
+**Supported hardware:** built and tested on the SK_PTZEXTREMEV2, for which a preset page is planned. The layout comes from the panel's own topology report, so other Raw Panels may work, but they are untested. Issues and PRs for other panels are welcome.
 
 **Status: in development.** The plugin loads but does not connect to a panel yet.
 

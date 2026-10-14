@@ -1,6 +1,8 @@
 # AGENTS.md
 
-A Bitfocus Companion **surface plugin** (TypeScript) that makes any SKAARHOJ Raw Panel a first-class Companion surface: buttons, encoders, LEDs, display text and analog controls. A standalone community plugin, first tested on the SK_PTZEXTREMEV2. It talks Raw Panel ASCII v1 over TCP 9923 through the plugin's `remote` (`SurfacePluginRemote`).
+A Bitfocus Companion **surface plugin** (TypeScript) that makes a SKAARHOJ Raw Panel a first-class Companion surface: buttons, encoders, LEDs, display text and analog controls. A standalone community plugin.
+
+**Support scope:** generic by construction, supported on one panel. The SK_PTZEXTREMEV2 is the only tested and supported panel. Code is driven by the panel's topology and control classes, never by model, so other Raw Panels may work. Do not add per-model code, bitmap/graphic displays, motorised faders or other hardware research unless the user asks; unknown control types are skipped and logged. It talks Raw Panel ASCII v1 over TCP 9923 through the plugin's `remote` (`SurfacePluginRemote`).
 
 Spec, decisions, slices and backlog: [JehutyPT/companion-surface-skaarhoj-rawpanel#1](https://github.com/JehutyPT/companion-surface-skaarhoj-rawpanel/issues/1). Read it before changing scope.
 

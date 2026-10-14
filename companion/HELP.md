@@ -1,6 +1,8 @@
 ## SKAARHOJ Raw Panel
 
-Use a SKAARHOJ Raw Panel as a Companion surface (first tested on the PTZ Extreme V2). Needs Companion 5.1 or later.
+Use a SKAARHOJ Raw Panel as a Companion surface. Needs Companion 5.1 or later.
+
+Built and tested on the SK_PTZEXTREMEV2. Other Raw Panels may work, since the layout comes from the panel, but they are untested.
 
 This plugin is in development and does not yet control the panel. This page grows as features ship.
 
