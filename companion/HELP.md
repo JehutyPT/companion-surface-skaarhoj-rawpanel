@@ -12,7 +12,7 @@ This plugin is in development. This page grows as features ship.
 2. In Companion, go to **Surfaces** → **Remote Surfaces** and add a connection for SKAARHOJ Raw Panel.
 3. Enter the panel's IP address and port `9923`.
 
-The panel appears as a surface named after its model. Its button grid follows the panel's physical layout, read from the panel when it connects.
+The panel appears as a surface named after its model. Its button grid follows the panel's physical layout, read from the panel when it connects. A control alone in its row joins the nearest row, and a run of controls of the same kind (such as a row of knobs) takes neighbouring columns with no gaps.
 
 ### Controls
 

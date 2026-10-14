@@ -127,17 +127,112 @@ describe('layout from topology', () => {
 	test('the real PTZ Extreme topology maps to a grid that mirrors the panel', async () => {
 		const { result } = await openSurface(ptzExtremeTopology)
 
-		// Top row: A10-A12, Knob A-H, joystick top button. Knobs sit on a wider pitch than the
-		// buttons and share columns with the buttons below them. Iris (57) sits alone between the
-		// A and X rows; Focus (59, round, no h) is close enough to share the Cam row.
+		// Top row: A10-A12, Knob A-H, joystick top button. The knobs sit on a wider pitch than the
+		// buttons, but as a run of one type they take consecutive columns. Iris (57) sits alone
+		// between the A and X rows and joins the nearer X row (162 vs 177 in y); Focus (59, round,
+		// no h) is close enough to share the Cam row.
 		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(
 			[
-				' 54 55 56 46 47 48  . 49 50  . 51 52  . 53  .  . 63',
+				' 54 55 56 46 47 48 49 50 51 52 53  .  .  .  .  . 63',
 				'  .  .  .  .  . 37 38 39 40 41 42 43 44 45  .  .  .',
-				'  .  .  .  . 57  .  .  .  .  .  .  .  .  .  .  .  .',
-				'  .  .  .  .  . 13 14 15 16 17 18 19 20 21 22 23 24',
+				'  .  .  .  . 57 13 14 15 16 17 18 19 20 21 22 23 24',
 				'  .  .  . 59  .  1  2  3  4  5  6  7  8  9 10 11 12',
 			].join('\n'),
+		)
+	})
+
+	/** A SYNTHESISED topology of 100x100 controls: `[id, x, y, type]`, type 1 a button, 2 an encoder. */
+	function gridTopology(controls: [number, number, number, number][]) {
+		return {
+			HWc: controls.map(([id, x, y, type]) => ({ id, x, y, txt: `C${id}`, type })),
+			typeIndex: {
+				'1': { w: 100, h: 100, in: 'b', out: 'rgb' },
+				'2': { w: 100, h: 100, in: 'pb', out: 'rgb' },
+			},
+		}
+	}
+
+	test('a control alone in its row joins the nearest row, at its own column', async () => {
+		const { result } = await openSurface(
+			gridTopology([
+				[1, 100, 100, 1],
+				[2, 300, 100, 1],
+				[3, 500, 100, 1],
+				[4, 100, 450, 1],
+				[5, 300, 450, 1],
+				[6, 500, 450, 1],
+				// 200 below the top row, 150 above the bottom row
+				[7, 700, 300, 2],
+			]),
+		)
+
+		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(['  1  2  3  .', '  4  5  6  7'].join('\n'))
+	})
+
+	test('a control joining a row on an occupied cell takes the nearest free column, left or right', async () => {
+		const { result } = await openSurface(
+			gridTopology([
+				[1, 100, 100, 1],
+				[2, 1100, 100, 2],
+				[5, 300, 450, 1],
+				[6, 500, 450, 1],
+				[8, 700, 450, 1],
+				[9, 900, 450, 1],
+				// Column 2 is taken in the bottom row; column 0 (two away) is nearer than column 5 (three away)
+				[7, 500, 300, 2],
+			]),
+		)
+
+		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(
+			['  1  .  .  .  .  2', '  7  5  6  8  9  .'].join('\n'),
+		)
+	})
+
+	test('controls alone in their rows stay apart when no row has more than one control', async () => {
+		const { result } = await openSurface(
+			gridTopology([
+				[1, 100, 100, 1],
+				[2, 100, 300, 1],
+				[3, 100, 500, 1],
+			]),
+		)
+
+		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(['  1', '  2', '  3'].join('\n'))
+	})
+
+	test('a run of controls of one type takes consecutive columns, even on a wider pitch', async () => {
+		const { result } = await openSurface(
+			gridTopology([
+				[1, 100, 100, 1],
+				[2, 300, 100, 1],
+				[3, 500, 100, 1],
+				[11, 100, 300, 2],
+				[12, 400, 300, 2],
+				[13, 700, 300, 2],
+			]),
+		)
+
+		// Columns from x are 100, 300, 400, 500, 700: the encoders at 0, 2 and 4 close up to 0, 1, 2,
+		// and the buttons at 0, 1 and 3 to 0, 1, 2
+		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(['  1  2  3', ' 11 12 13'].join('\n'))
+	})
+
+	test('only neighbours of the same type close up: a control of another type keeps its column and splits the run', async () => {
+		const { result } = await openSurface(
+			gridTopology([
+				[1, 100, 100, 1],
+				[2, 400, 100, 1],
+				[3, 700, 100, 2],
+				[4, 1000, 100, 1],
+				[11, 250, 300, 1],
+				[12, 550, 300, 1],
+				[13, 850, 300, 1],
+			]),
+		)
+
+		// Columns from x: 100, 250, 400, 550, 700, 850, 1000
+		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(
+			['  1  2  .  .  3  .  4', '  . 11 12 13  .  .  .'].join('\n'),
 		)
 	})
 
@@ -148,6 +243,8 @@ describe('layout from topology', () => {
 				{ id: 2, x: 300, y: 1000, txt: 'Button', type: 1 },
 				{ id: 3, x: 500, y: 930, txt: 'Big knob', type: 2 },
 				{ id: 4, x: 700, y: 1070, txt: 'Small knob', type: 3 },
+				// A second small knob, so the small knobs' row is not merged as a lone control
+				{ id: 5, x: 900, y: 1070, txt: 'Small knob', type: 3 },
 			],
 			typeIndex: {
 				'1': { w: 150, h: 100, in: 'b', out: 'rgb' },
@@ -158,7 +255,9 @@ describe('layout from topology', () => {
 
 		// The big knob is 70 above the buttons, within half its 240 width: same row. The small knob
 		// is 70 below, beyond half its 100 width: a row of its own.
-		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(['  1  2  3  .', '  .  .  .  4'].join('\n'))
+		expect(asciiGrid(result.registerProps.surfaceLayout.controls)).toEqual(
+			['  1  2  3  .  .', '  .  .  .  4  5'].join('\n'),
+		)
 	})
 
 	test('a control on an occupied cell moves right to the next free column', async () => {

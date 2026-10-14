@@ -196,7 +196,25 @@ Implemented in `src/protocol.ts`, `src/connection.ts` and `src/instance.ts`:
 - Writes: per-key (`HWC#n`, `HWCc#n`, `HWCt#n`) diffs and coalescing, up to 8 lines every 20 ms, held on `BSY` until `RDY` or a panel `ping`. `ping`, `ack`, `list` and `PanelTopology?` bypass the queue.
 - No panel settings.
 
-Layout (`src/topology.ts`): buttons and encoders become controls `hwc/<id>`. Columns and rows are ranks of x and y: taken in order, a control shares the current column (row) when its centre is within half the larger of its own width (height) and that of the column's first control; `h` falls back to `w`. Collisions move right. Style presets: `default` (LED colour), `display` (colour and text), `text` (display, no LED), `none` (neither).
+Layout (`src/topology.ts`): buttons and encoders become controls `hwc/<id>`. The rules are generic over the topology; nothing depends on a model or an HWC id. In order:
+
+1. Columns and rows are ranks of x and y: taken in order, a control shares the current column (row) when its centre is within half the larger of its own width (height) and that of the column's first control; `h` falls back to `w`.
+2. A control alone in its row joins the nearest row that holds more than one control, by distance from its y to the row's mean y (the upper row on a tie). If no row holds more than one control, nothing moves. Rows are then renumbered without gaps.
+3. Each control takes its ranked column; on an occupied cell it moves right to the next free column. Controls that joined another row are placed after the rest, on the nearest free column to their ranked one (right first on a tie).
+4. Within a row, taken in column order, a control of the same topology type as its left neighbour takes the column right after it. Runs of one type on a wider pitch than the global columns (knobs among buttons) so lose their gaps, while a control of another type keeps its column and ends the run. This only moves controls left and never past another control, so it cannot collide, and rows whose runs already sit on consecutive columns are unchanged. "Same type" is the topology `type` id; a control with a `typeOverride` is a type of its own. Only layout controls count as neighbours: an analog or placeholder control between two buttons does not split their run.
+
+Style presets: `default` (LED colour), `display` (colour and text), `text` (display, no LED), `none` (neither).
+
+On the PTZ Extreme this gives (HWC ids; `.` is an empty cell):
+
+```
+ 54 55 56 46 47 48 49 50 51 52 53  .  .  .  .  . 63
+  .  .  .  .  . 37 38 39 40 41 42 43 44 45  .  .  .
+  .  .  .  . 57 13 14 15 16 17 18 19 20 21 22 23 24
+  .  .  . 59  .  1  2  3  4  5  6  7  8  9 10 11 12
+```
+
+Iris (57) is alone between the A and X rows and joins the X row (162 from it in y, against 177 from the A row).
 
 ## Defects in companion-module-skaarhoj-rawpanel to avoid
 
