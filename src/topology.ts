@@ -80,7 +80,7 @@ export function axisTransferVariable(axis: AnalogAxis): SurfaceInputVariable {
 		id: axis.variableId,
 		type: 'input',
 		name: axis.name,
-		description: `Raw value ${range}. The plugin can't create or preselect a variable here: create a custom variable once (suggested name: ${axis.suggestedVariable}, with "persist value" off) and pick it.`,
+		description: `Value ${range}, scaled linearly by this axis's dead zone and saturation settings. The plugin can't create or preselect a variable here: create a custom variable once (suggested name: ${axis.suggestedVariable}, with "persist value" off) and pick it.`,
 	}
 }
 

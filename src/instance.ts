@@ -15,7 +15,7 @@ import { AnalogSender, parseAnalogTuning } from './analog.js'
 import type { PanelLink } from './link.js'
 import { ledCommands, textCommand, type PanelCommand, type PanelEvent } from './protocol.js'
 import { DEFAULT_PANEL_SETTINGS, parsePanelSettings, settingCommands, type PanelSettings } from './settings.js'
-import type { LayoutControl, PanelLayout } from './topology.js'
+import type { AnalogAxis, LayoutControl, PanelLayout } from './topology.js'
 
 interface ControlState {
 	color: string | undefined
@@ -37,6 +37,7 @@ export class RawPanelSurface implements SurfaceInstance {
 	/** Pressed edges per HWC; plain (edge-less) presses use bit 1 */
 	readonly #held = new Map<number, number>()
 	readonly #analog: AnalogSender
+	readonly #axes: readonly AnalogAxis[]
 	#settings: PanelSettings = DEFAULT_PANEL_SETTINGS
 	/** Companion's latest brightness for this surface, 0-100; undefined until it sets one */
 	#brightness: number | undefined
@@ -68,6 +69,7 @@ export class RawPanelSurface implements SurfaceInstance {
 			this.#byId.set(control.controlId, control)
 			this.#state.set(control.controlId, OFF)
 		}
+		this.#axes = layout.axes
 		this.#analog = new AnalogSender(
 			layout.axes,
 			(variableId, value) => this.#context.sendVariableValue(variableId, value),
@@ -96,7 +98,7 @@ export class RawPanelSurface implements SurfaceInstance {
 	async updateConfig(config: Record<string, any>): Promise<void> {
 		if (this.#closed) return
 		this.#settings = parsePanelSettings(config)
-		this.#analog.configure(parseAnalogTuning(config))
+		this.#analog.configure(parseAnalogTuning(config, this.#axes))
 		// Diffed per command, so only a changed setting goes out
 		this.#link.write(settingCommands(this.#settings, this.#brightness))
 	}

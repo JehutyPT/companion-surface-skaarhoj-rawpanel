@@ -526,7 +526,8 @@ describe('input', () => {
 
 		await send('HWC#11=Abs:500', 'HWC#12=Down', 'HWC#99=Down', 'nack', 'map=1:1', 'HWC#1=Sideways')
 
-		expect(context.calls).toEqual([['variable', 'hwc_11', 500]])
+		// 500 scaled past the default dead zone of 6: 1000 * 494 / 994 = 497
+		expect(context.calls).toEqual([['variable', 'hwc_11', 497]])
 	})
 
 	test('keys held when the link drops are released', async () => {

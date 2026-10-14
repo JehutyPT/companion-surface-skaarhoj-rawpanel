@@ -52,7 +52,7 @@ export function createRawPanelPlugin(options: RawPanelPluginOptions = {}): Surfa
 					surfaceLayout: layout.surfaceLayout,
 					pincodeMap: null,
 					location: `${link.address}:${link.port}`,
-					configFields: surfaceConfigFields,
+					configFields: surfaceConfigFields(layout.axes),
 					transferVariables: layout.axes.length ? layout.axes.map(axisTransferVariable) : undefined,
 				},
 			}

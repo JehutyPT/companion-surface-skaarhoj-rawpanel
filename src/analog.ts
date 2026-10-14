@@ -1,40 +1,78 @@
 /**
  * Analog axes (joysticks, rockers, faders, T-bars) to Companion input transfer variables: the
- * panel's raw value, sent only on change past a deadband, at most once per interval per axis, with
- * a trailing send so the final value always arrives. Both are user settings (`AnalogTuning`).
+ * panel's value rescaled linearly between each axis's dead zone and saturation, sent only on change
+ * past the dead zone, at most once per interval per axis, with a trailing send so the final value
+ * always arrives. All are user settings (`AnalogTuning`).
  */
 import type { AnalogAxis, AnalogMode } from './topology.js'
 
-export interface AnalogTuning {
-	/** Changes smaller than this (in panel units) are not sent; an intensity value this close to 0 counts as 0. 0 sends every change. */
+export interface AxisTuning {
+	/**
+	 * In panel units, measured from 0: a value this close to 0 reads 0. Also the change threshold:
+	 * changes smaller than this are not sent. 0 sends every change.
+	 */
 	deadband: number
-	/** At most one send per axis this often */
-	intervalMs: number
+	/** In panel units, measured from 0: a value at or past this reads as full travel (500 or 1000). */
+	saturation: number
 }
 
-/** The joystick jitters by about ±5 at rest; Companion's variable-trigger throttle is about 20 Hz. */
-export const DEFAULT_ANALOG_TUNING: Readonly<AnalogTuning> = { deadband: 6, intervalMs: 50 }
+export interface AnalogTuning {
+	/** At most one send per axis this often */
+	intervalMs: number
+	/** By HWC; an axis missing here uses `defaultAxisTuning` */
+	axes: Readonly<Record<number, AxisTuning>>
+}
 
-interface Range {
+/** Full travel from 0: intensity (`Speed`) axes run -500..500, absolute (`Abs`) ones 0..1000. */
+export function fullScale(mode: AnalogMode): number {
+	return mode === 'Speed' ? 500 : 1000
+}
+
+/** The joystick jitters by about ±5 at rest; saturation at full travel is off. */
+export function defaultAxisTuning(mode: AnalogMode): AxisTuning {
+	return { deadband: 6, saturation: fullScale(mode) }
+}
+
+/** Companion's variable-trigger throttle is about 20 Hz. */
+export const DEFAULT_ANALOG_INTERVAL_MS = 50
+
+export interface Range {
 	min: number
 	max: number
 }
 
 /** Accepted values; Companion's number field `min`/`max` are only a UI hint. */
-export const ANALOG_TUNING_RANGES: Readonly<Record<keyof AnalogTuning, Range>> = {
-	deadband: { min: 0, max: 100 },
-	intervalMs: { min: 10, max: 1000 },
+export const ANALOG_INTERVAL_RANGE: Readonly<Range> = { min: 10, max: 1000 }
+export const DEADBAND_RANGE: Readonly<Range> = { min: 0, max: 100 }
+/** Saturation starts at 100 so it can't be set to swallow most of the travel by mistake. */
+export function saturationRange(mode: AnalogMode): Range {
+	return { min: 100, max: fullScale(mode) }
 }
 
-/** The tuning from the surface config fields `analogDeadband` and `analogInterval`. */
-export function parseAnalogTuning(config: Record<string, unknown>): AnalogTuning {
+/** Surface config field ids for an axis's tuning */
+export const deadbandFieldId = (hwc: number): string => `analogDeadband_${hwc}`
+export const saturationFieldId = (hwc: number): string => `analogSaturation_${hwc}`
+
+/**
+ * The tuning from the surface config fields: `analogInterval`, and per axis `analogDeadband_<hwc>`
+ * and `analogSaturation_<hwc>`. An axis without its own dead zone takes the old single
+ * `analogDeadband` setting, so it carries over. A saturation not above the dead zone is ignored.
+ */
+export function parseAnalogTuning(config: Record<string, unknown>, axes: readonly AnalogAxis[]): AnalogTuning {
+	const byHwc: Record<number, AxisTuning> = {}
+	for (const { hwc, mode } of axes) {
+		const fallback = defaultAxisTuning(mode)
+		const deadband = parseWholeNumber(
+			config[deadbandFieldId(hwc)] ?? config.analogDeadband,
+			fallback.deadband,
+			DEADBAND_RANGE,
+		)
+		const saturation = parseWholeNumber(config[saturationFieldId(hwc)], fallback.saturation, saturationRange(mode))
+		byHwc[hwc] = { deadband, saturation: saturation > deadband ? saturation : fallback.saturation }
+	}
 	return {
-		deadband: parseWholeNumber(config.analogDeadband, DEFAULT_ANALOG_TUNING.deadband, ANALOG_TUNING_RANGES.deadband),
-		intervalMs: parseWholeNumber(
-			config.analogInterval,
-			DEFAULT_ANALOG_TUNING.intervalMs,
-			ANALOG_TUNING_RANGES.intervalMs,
-		),
+		intervalMs: parseWholeNumber(config.analogInterval, DEFAULT_ANALOG_INTERVAL_MS, ANALOG_INTERVAL_RANGE),
+		axes: byHwc,
 	}
 }
 
@@ -45,6 +83,19 @@ function parseWholeNumber(value: unknown, fallback: number, range: Range): numbe
 	const n = Number(value)
 	if (!Number.isFinite(n)) return fallback
 	return Math.max(range.min, Math.min(range.max, Math.round(n)))
+}
+
+/**
+ * Linear rescale, measured from 0: within the dead zone reads 0, at or past saturation reads full
+ * travel, and in between scales linearly, continuous at both edges. A `Speed` axis keeps its sign.
+ */
+function rescale(mode: AnalogMode, raw: number, { deadband, saturation }: AxisTuning): number {
+	const full = fullScale(mode)
+	const magnitude = Math.abs(raw)
+	if (magnitude <= deadband) return 0
+	const scaled = magnitude >= saturation ? full : Math.round((full * (magnitude - deadband)) / (saturation - deadband))
+	// Never -0
+	return raw < 0 && scaled !== 0 ? -scaled : scaled
 }
 
 interface AxisState {
@@ -67,7 +118,7 @@ export class AnalogSender {
 	readonly #byHwc = new Map<number, AxisState>()
 	readonly #send: (variableId: string, value: number) => void
 	readonly #isLocked: () => boolean
-	#tuning: Readonly<AnalogTuning> = DEFAULT_ANALOG_TUNING
+	#tuning: Readonly<AnalogTuning> = { intervalMs: DEFAULT_ANALOG_INTERVAL_MS, axes: {} }
 	#stopped = false
 
 	constructor(axes: AnalogAxis[], send: (variableId: string, value: number) => void, isLocked: () => boolean) {
@@ -90,15 +141,20 @@ export class AnalogSender {
 	}
 
 	/**
-	 * A value from the panel. An intensity axis within the deadband of 0 counts as 0, so an axis that
-	 * comes to rest slightly off centre still reads 0. While Companion is locked only 0 goes out.
+	 * A value from the panel, rescaled by the axis's dead zone and saturation, so an axis that comes
+	 * to rest slightly off centre reads 0 and one that stops a few steps short of its end reads full
+	 * travel. While Companion is locked only 0 goes out.
 	 */
 	input(hwc: number, raw: number): void {
 		const state = this.#byHwc.get(hwc)
 		if (!state || this.#stopped) return
 		const mode = state.axis.mode
-		const { deadband, intervalMs } = this.#tuning
-		const value = mode === 'Speed' && Math.abs(raw) < deadband ? 0 : raw
+		const { intervalMs } = this.#tuning
+		const tuning = this.#tuning.axes[hwc] ?? defaultAxisTuning(mode)
+		const value = rescale(mode, raw, tuning)
+		// The axis's dead zone is also its change threshold (hysteresis), on the rescaled value:
+		// smaller changes are not sent, except to 0 or full travel.
+		const deadband = tuning.deadband
 		if (value !== 0 && this.#isLocked()) {
 			state.pending = undefined
 			return

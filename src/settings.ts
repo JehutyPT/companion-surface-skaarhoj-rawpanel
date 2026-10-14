@@ -1,17 +1,28 @@
 /**
  * Per-surface settings: the panel's own settings, all opt-in (with the defaults the plugin never
- * sends `SleepTimer=` or `PanelBrightness=`), and the analog tuning (dead zone, send interval).
+ * sends `SleepTimer=` or `PanelBrightness=`), and the analog tuning (send interval, and per axis a
+ * dead zone and saturation).
  */
 import type { SomeCompanionInputField } from '@companion-surface/base'
-import { ANALOG_TUNING_RANGES, DEFAULT_ANALOG_TUNING } from './analog.js'
+import {
+	ANALOG_INTERVAL_RANGE,
+	DEADBAND_RANGE,
+	DEFAULT_ANALOG_INTERVAL_MS,
+	deadbandFieldId,
+	defaultAxisTuning,
+	fullScale,
+	saturationFieldId,
+	saturationRange,
+} from './analog.js'
 import type { PanelCommand } from './protocol.js'
+import type { AnalogAxis } from './topology.js'
 
 /** Dropdown value meaning "leave the panel's sleep timer alone" */
 const SLEEP_TIMER_UNCHANGED = 'panel'
 
 const MINUTE = 60_000
 
-export const surfaceConfigFields: SomeCompanionInputField[] = [
+const panelSettingFields: SomeCompanionInputField[] = [
 	{
 		id: 'sleepTimer',
 		type: 'dropdown',
@@ -40,24 +51,45 @@ export const surfaceConfigFields: SomeCompanionInputField[] = [
 		default: false,
 	},
 	{
-		id: 'analogDeadband',
-		type: 'number',
-		label: 'Analog dead zone',
-		tooltip:
-			'In panel steps (joysticks and rockers run -500 to 500, faders 0 to 1000). Changes smaller than this are not sent, and a joystick or rocker this close to centre reads 0. Full travel and the return to centre always get through. 0 sends every change.',
-		default: DEFAULT_ANALOG_TUNING.deadband,
-		...ANALOG_TUNING_RANGES.deadband,
-	},
-	{
 		id: 'analogInterval',
 		type: 'number',
 		label: 'Analog send interval (ms)',
 		tooltip:
 			'The shortest time between two values sent for one axis, in milliseconds. Faster moves are combined, always ending on the latest value. 50 ms is about 20 times a second; 10 is the fastest.',
-		default: DEFAULT_ANALOG_TUNING.intervalMs,
-		...ANALOG_TUNING_RANGES.intervalMs,
+		default: DEFAULT_ANALOG_INTERVAL_MS,
+		...ANALOG_INTERVAL_RANGE,
 	},
 ]
+
+/** A dead zone and a saturation field per analog axis in the topology. */
+function axisFields(axis: AnalogAxis): SomeCompanionInputField[] {
+	const full = fullScale(axis.mode)
+	const travel = axis.mode === 'Speed' ? '-500 to 500' : '0 to 1000'
+	const defaults = defaultAxisTuning(axis.mode)
+	return [
+		{
+			id: deadbandFieldId(axis.hwc),
+			type: 'number',
+			label: `${axis.name}: dead zone`,
+			tooltip: `In panel steps from 0 (this axis runs ${travel}). A value this close to 0 reads 0, and a change smaller than this is not sent; 0 and full travel always get through. 0 turns it off and sends every change.`,
+			default: defaults.deadband,
+			...DEADBAND_RANGE,
+		},
+		{
+			id: saturationFieldId(axis.hwc),
+			type: 'number',
+			label: `${axis.name}: saturation`,
+			tooltip: `In panel steps from 0. A value at or past this reads as full travel (${full}); between the dead zone and this, the value is scaled linearly to the full range. If the axis stops short of its end (say at ${full - 4}), set it a step below that. ${full} turns it off.`,
+			default: defaults.saturation,
+			...saturationRange(axis.mode),
+		},
+	]
+}
+
+/** The surface config fields for a panel with these analog axes. */
+export function surfaceConfigFields(axes: readonly AnalogAxis[]): SomeCompanionInputField[] {
+	return [...panelSettingFields, ...axes.flatMap(axisFields)]
+}
 
 export interface PanelSettings {
 	/** Sleep timeout in ms (0 = never), or undefined to leave the panel's alone */
