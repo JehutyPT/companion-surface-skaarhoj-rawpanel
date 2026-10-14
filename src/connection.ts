@@ -1,11 +1,12 @@
 /**
  * One TCP link to a Raw Panel: line framing, the connect sequence (`list`, `PanelTopology?`),
  * ping liveness, reconnect with exponential backoff, and a paced, coalescing write queue that
- * honours `BSY`/`RDY`.
+ * flushes on the leading edge and honours `BSY`/`RDY`.
  */
 import { createModuleLogger, type ModuleLogger } from '@companion-surface/base'
 import EventEmitter from 'node:events'
 import net from 'node:net'
+import { performance } from 'node:perf_hooks'
 import { parseLine, type PanelEvent } from './protocol.js'
 import { parseTopology, type Topology } from './topology.js'
 
@@ -95,6 +96,8 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 	#busyTimer: NodeJS.Timeout | undefined
 
 	#busy = false
+	/** When the last burst went out (monotonic `performance.now()`); `-Infinity` until the first one on this link. */
+	#lastFlushAt = -Infinity
 	readonly #pending = new Map<string, string>()
 	readonly #lastSent = new Map<string, string>()
 
@@ -153,6 +156,7 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		this.#setBusy(false)
 		this.#pending.clear()
 		this.#lastSent.clear()
+		this.#lastFlushAt = -Infinity
 
 		const socket = net.createConnection({ host: this.host, port: this.port })
 		this.#socket = socket
@@ -273,12 +277,18 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		}
 	}
 
+	/**
+	 * Leading edge: if no burst went out within the last `writeIntervalMs`, flush on the next timer
+	 * turn (so writes made in the same tick, such as colour then state, share one burst). Otherwise
+	 * wait out the rest of the interval: at most one burst per `writeIntervalMs`.
+	 */
 	#scheduleFlush(): void {
 		if (this.#writeTimer || this.#pending.size === 0 || this.#busy || !this.#online) return
+		const delay = Math.max(0, this.#lastFlushAt + this.#timings.writeIntervalMs - performance.now())
 		this.#writeTimer = setTimeout(() => {
 			this.#writeTimer = undefined
 			this.#flush()
-		}, this.#timings.writeIntervalMs)
+		}, delay)
 	}
 
 	#flush(): void {
@@ -290,7 +300,10 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 			this.#lastSent.set(key, line)
 			lines.push(line)
 		}
-		if (lines.length) this.#rawWrite(lines)
+		if (lines.length) {
+			this.#lastFlushAt = performance.now()
+			this.#rawWrite(lines)
+		}
 		this.#scheduleFlush()
 	}
 

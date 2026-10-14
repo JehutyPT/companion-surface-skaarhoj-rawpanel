@@ -194,7 +194,7 @@ Implemented in `src/protocol.ts`, `src/connection.ts` and `src/instance.ts`:
   - two or more lines → `HWCt#n=1|11|||1|<line1>|<line2>` (line 2, then line 1, cut to fit).
   - Companion passes typed escapes literally; like its renderer, `\n` and `\r` break the line and `\t` is a space.
 - Liveness: `ping` every second; any inbound line counts as alive; 5 s of silence drops the link. Reconnect backoff 1 s doubling to 30 s, reset by a received topology.
-- Writes: per-key (`HWC#n`, `HWCc#n`, `HWCt#n`) diffs and coalescing, up to 8 lines every 20 ms, held on `BSY` until `RDY`, a panel `ping`, or 1 s without either (the panel sent neither in the 2026-10-14 captures, so the hold must not depend on them). `ping`, `ack`, `list` and `PanelTopology?` bypass the queue.
+- Writes: per-key (`HWC#n`, `HWCc#n`, `HWCt#n`) diffs and coalescing, up to 8 lines every 20 ms with a leading edge (a write to a queue idle for 20 ms goes out on the next timer turn rather than after a full 20 ms; anything more waits out the interval), held on `BSY` until `RDY`, a panel `ping`, or 1 s without either (the panel sent neither in the 2026-10-14 captures, so the hold must not depend on them). `ping`, `ack`, `list` and `PanelTopology?` bypass the queue.
 - No panel settings.
 
 Layout (`src/topology.ts`): buttons and encoders become controls `hwc/<id>`. The rules are generic over the topology; nothing depends on a model or an HWC id. In order:
