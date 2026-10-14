@@ -134,12 +134,24 @@ function sanitiseTextLine(line: string): string {
 }
 
 /**
+ * Companion keeps escapes typed into button text (`\n`, `\r`, `\t`) as literal two-character
+ * sequences and only converts them when it renders (RenderThread.js). Do the same: they become a
+ * line break or a space. A real `\r\n` needs nothing here: it splits on `\n` and the sanitiser
+ * drops the `\r`.
+ */
+function unescapeCompanionText(text: string): string {
+	return text.replaceAll('\\n', '\n').replaceAll('\\r', '\n').replaceAll('\\t', ' ')
+}
+
+/**
  * Display command for Companion button text. One line renders as one big line, two or more as
  * two small lines (extra lines are dropped); empty text clears the display.
  */
 export function textCommand(hwc: number, text: string | undefined): PanelCommand {
 	const key = `HWCt#${hwc}`
-	const lines = (text ?? '').split('\n').map(sanitiseTextLine)
+	const lines = unescapeCompanionText(text ?? '')
+		.split('\n')
+		.map(sanitiseTextLine)
 	while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
 
 	if (lines.length === 0) return { key, line: `${key}=||||||` }

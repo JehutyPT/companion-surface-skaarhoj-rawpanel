@@ -377,6 +377,18 @@ describe('drawing', () => {
 		expect(sent).toEqual(['HWCt#10=1|11|||1|Line one|Line two'])
 	})
 
+	test('escaped line breaks and tabs in text are read the way Companion renders them', async () => {
+		const { result } = await openSurface(smallTopology)
+
+		const drawText = async (text: string) =>
+			drawAndCollect(result.surface, { controlId: 'hwc/10', text, pressed: false })
+
+		expect(await drawText('Line one\\nLine two')).toEqual(['HWCt#10=1|11|||1|Line one|Line two'])
+		expect(await drawText('Up\\rDown')).toEqual(['HWCt#10=1|11|||1|Up|Down'])
+		expect(await drawText('CAM\\t1')).toEqual(['HWCt#10=1|10||CAM 1'])
+		expect(await drawText('Real\r\nbreak')).toEqual(['HWCt#10=1|11|||1|Real|break'])
+	})
+
 	test('text is cleaned of pipes and non-ASCII, and long text is cut to fit the panel', async () => {
 		const { result } = await openSurface(smallTopology)
 

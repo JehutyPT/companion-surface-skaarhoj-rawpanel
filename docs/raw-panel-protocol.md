@@ -90,7 +90,7 @@ Renderings:
 - `isLabel` 0/empty gives a solid title bar ("state"); 1 gives a thin underline ("label").
 - Empty value with format 0 hides the value (lib sets format 7).
 
-Display sizes on this panel [HW]: 64×32 on the buttons, 112×32 on the knobs. Monochrome bitmaps exist (`HWCg#id=0/<last>,<w>x<h>:<b64>`, lines under ~250 chars) but are untested here.
+Display sizes on this panel [HW]: 64×32 on the buttons, 112×32 on the knobs. Captured 2026-10-14: on a 64×32 button display, one line at the default size shows about 11 characters (`ABCDEFGHIJK` of `ABCDEFGHIJKLMNOP`). Monochrome bitmaps exist (`HWCg#id=0/<last>,<w>x<h>:<b64>`, lines under ~250 chars) but are untested here.
 
 ### Panel-wide (panel settings)
 
@@ -192,6 +192,7 @@ Implemented in `src/protocol.ts`, `src/connection.ts` and `src/instance.ts`:
   - empty → `HWCt#n=||||||`
   - one line → `HWCt#n=1|10||<line>`
   - two or more lines → `HWCt#n=1|11|||1|<line1>|<line2>` (line 2, then line 1, cut to fit).
+  - Companion passes typed escapes literally; like its renderer, `\n` and `\r` break the line and `\t` is a space.
 - Liveness: `ping` every second; any inbound line counts as alive; 5 s of silence drops the link. Reconnect backoff 1 s doubling to 30 s, reset by a received topology.
 - Writes: per-key (`HWC#n`, `HWCc#n`, `HWCt#n`) diffs and coalescing, up to 8 lines every 20 ms, held on `BSY` until `RDY`, a panel `ping`, or 1 s without either (the panel sent neither in the 2026-10-14 captures, so the hold must not depend on them). `ping`, `ack`, `list` and `PanelTopology?` bypass the queue.
 - No panel settings.
