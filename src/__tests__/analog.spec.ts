@@ -1,13 +1,13 @@
 /**
  * Analog controls (joysticks, rockers, faders, T-bars) as Companion input transfer variables.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { LoggingSink, OpenSurfaceResult } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
 import { sleep, waitFor } from './helpers/fake-panel.js'
 import { FakeSurfaceContext, type ContextCall } from './helpers/fake-context.js'
 import { ptzExtremeTopology } from './fixtures/topologies.js'
-import { parseAnalogTuning } from '../analog.js'
+import { AnalogSender, parseAnalogTuning } from '../analog.js'
 
 let harness: Harness | undefined
 
@@ -296,20 +296,25 @@ describe('analog values', () => {
 describe('analog tuning (surface settings)', () => {
 	const fields = (result: OpenSurfaceResult) => result.registerProps.configFields ?? []
 
-	test('each axis in the topology gets its own dead zone and saturation field, named after the axis', async () => {
+	test('each axis in the topology gets its own enabled, dead zone and saturation field, named after the axis', async () => {
 		const { result } = await openSurface()
-		const analogFields = fields(result).filter((f) => /^analog(Deadband|Saturation)/.test(f.id))
+		const analogFields = fields(result).filter((f) => /^analog(Enabled|Deadband|Saturation)/.test(f.id))
 
 		expect(analogFields.map((f) => [f.id, f.label])).toEqual([
+			['analogEnabled_58', 'Elastomer Zoom Rocker (HWC 58): enabled'],
 			['analogDeadband_58', 'Elastomer Zoom Rocker (HWC 58): dead zone'],
 			['analogSaturation_58', 'Elastomer Zoom Rocker (HWC 58): saturation'],
+			['analogEnabled_60', '4-Axis Joystick, Left-Right (HWC 60): enabled'],
 			['analogDeadband_60', '4-Axis Joystick, Left-Right (HWC 60): dead zone'],
 			['analogSaturation_60', '4-Axis Joystick, Left-Right (HWC 60): saturation'],
+			['analogEnabled_61', '4-Axis Joystick, Up-Down (HWC 61): enabled'],
 			['analogDeadband_61', '4-Axis Joystick, Up-Down (HWC 61): dead zone'],
 			['analogSaturation_61', '4-Axis Joystick, Up-Down (HWC 61): saturation'],
+			['analogEnabled_62', '4-Axis Joystick, Rotate (HWC 62): enabled'],
 			['analogDeadband_62', '4-Axis Joystick, Rotate (HWC 62): dead zone'],
 			['analogSaturation_62', '4-Axis Joystick, Rotate (HWC 62): saturation'],
 		])
+		expect(fields(result).find((f) => f.id === 'analogEnabled_60')).toMatchObject({ type: 'checkbox', default: true })
 		expect(fields(result).find((f) => f.id === 'analogDeadband_60')).toMatchObject({
 			type: 'number',
 			default: 6,
@@ -607,11 +612,146 @@ describe('analog tuning (surface settings)', () => {
 			{ deadband: 100, saturation: 500 },
 		],
 	])('%s values are read as a usable tuning', (_name, config, intervalMs, axis) => {
-		expect(parseAnalogTuning(config, [joystick])).toEqual({ intervalMs, axes: { 60: axis } })
+		expect(parseAnalogTuning(config, [joystick])).toEqual({ intervalMs, axes: { 60: { enabled: true, ...axis } } })
 	})
 
 	test('a fader is tuned on its own scale, 0 to 1000', () => {
-		expect(parseAnalogTuning({}, [fader])).toEqual({ intervalMs: 50, axes: { 5: { deadband: 6, saturation: 1000 } } })
+		expect(parseAnalogTuning({}, [fader])).toEqual({
+			intervalMs: 50,
+			axes: { 5: { enabled: true, deadband: 6, saturation: 1000 } },
+		})
 		expect(parseAnalogTuning({ analogSaturation_5: 2000 }, [fader]).axes[5].saturation).toBe(1000)
+	})
+})
+
+describe('enabling and disabling an axis (surface settings)', () => {
+	test('a disabled axis sends nothing; the other axes are unaffected', async () => {
+		const { context, panel, result } = await openSurface()
+		await result.surface.updateConfig!({ analogEnabled_60: false })
+		context.calls.length = 0
+
+		panel.send('HWC#60=Speed:300', 'HWC#61=Speed:300')
+		await sleep(70)
+		panel.send('HWC#60=Speed:0')
+		await sleep(70)
+
+		// 300 scaled past the default dead zone: 500 * 294 / 494 = 297.6
+		expect(variables(context.calls)).toEqual([['variable', 'hwc_61', 298]])
+	})
+
+	test('disabling a deflected axis drops its queued value and puts it at rest once', async () => {
+		const { context, panel, result } = await openSurface()
+		await result.surface.updateConfig!({ analogDeadband_60: 0 })
+		await sleep(60)
+		context.calls.length = 0
+
+		panel.send('HWC#60=Speed:100', 'HWC#60=Speed:200')
+		await waitFor(() => variables(context.calls).length >= 1)
+		await result.surface.updateConfig!({ analogDeadband_60: 0, analogEnabled_60: false })
+		await result.surface.updateConfig!({ analogDeadband_60: 0, analogEnabled_60: false })
+		await sleep(70)
+
+		expect(variables(context.calls)).toEqual([
+			['variable', 'hwc_60', 100],
+			['variable', 'hwc_60', 0],
+		])
+	})
+
+	test('a disabled axis already at rest sends nothing, and the link dropping sends it nothing either', async () => {
+		const { context, panel, result } = await openSurface()
+		await result.surface.updateConfig!({ analogEnabled_62: false })
+		await sleep(20)
+		panel.send('HWC#60=Speed:-300')
+		await waitFor(() => variables(context.calls).length >= 5)
+		context.calls.length = 0
+
+		panel.dropClients()
+		await waitFor(() => variables(context.calls).length >= 1)
+		await sleep(30)
+
+		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', 0]])
+	})
+
+	test('a disabled fader keeps the value Companion has', async () => {
+		const { context, panel, result } = await openSurface({
+			HWc: [
+				{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
+				{ id: 5, x: 300, y: 100, txt: 'Fader', type: 2 },
+			],
+			typeIndex: { '1': { w: 100, in: 'b', out: 'rgb' }, '2': { w: 100, in: 'av' } },
+		})
+		panel.send('HWC#5=Abs:1000')
+		await sleep(70)
+
+		await result.surface.updateConfig!({ analogEnabled_5: false })
+		panel.send('HWC#5=Abs:300')
+		await sleep(70)
+
+		expect(variables(context.calls)).toEqual([['variable', 'hwc_5', 1000]])
+	})
+
+	test('enabling an axis again sends its next value', async () => {
+		const { context, panel, result } = await openSurface()
+		await result.surface.updateConfig!({ analogEnabled_60: false })
+		panel.send('HWC#60=Speed:300')
+		await sleep(70)
+		context.calls.length = 0
+
+		await result.surface.updateConfig!({ analogEnabled_60: true })
+		panel.send('HWC#60=Speed:-500')
+		await sleep(70)
+
+		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', -500]])
+	})
+
+	test('a disabled axis is not put at rest when the surface becomes ready', async () => {
+		harness = new Harness({ topology: ptzExtremeTopology })
+		await harness.start()
+		await harness.connect()
+		const info = await harness.waitForAnnouncements()
+		const context = new FakeSurfaceContext()
+		const result = await harness.plugin.openSurface(info.surfaceId, info.pluginInfo, context)
+		harness.opened.push(result)
+		await result.surface.init()
+		await result.surface.updateConfig!({ analogEnabled_58: false, analogEnabled_61: false })
+
+		await result.surface.ready()
+
+		expect(variables(context.calls).map((c) => c[1])).toEqual(['hwc_60', 'hwc_62'])
+	})
+
+	test.each([
+		['missing', {}, true],
+		['true', { analogEnabled_60: true }, true],
+		['false', { analogEnabled_60: false }, false],
+	])('enabled %s', (_name, config, enabled) => {
+		const axis = { hwc: 60, variableId: 'hwc_60', name: 'LR', suggestedVariable: 'skaarhoj_lr', mode: 'Speed' as const }
+		expect(parseAnalogTuning(config, [axis]).axes[60].enabled).toBe(enabled)
+	})
+})
+
+describe('analog sender with every axis disabled', () => {
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
+	test('does no work: nothing is sent, nothing is queued and no timer is started', () => {
+		vi.useFakeTimers()
+		const axes = [
+			{ hwc: 60, variableId: 'hwc_60', name: 'LR', suggestedVariable: 'skaarhoj_lr', mode: 'Speed' as const },
+			{ hwc: 61, variableId: 'hwc_61', name: 'UD', suggestedVariable: 'skaarhoj_ud', mode: 'Speed' as const },
+		]
+		const send = vi.fn()
+		const sender = new AnalogSender(axes, send, () => false)
+		sender.configure(parseAnalogTuning({ analogEnabled_60: false, analogEnabled_61: false }, axes))
+
+		for (let v = -500; v <= 500; v += 10) {
+			sender.input(60, v)
+			sender.input(61, -v)
+		}
+		sender.rest()
+
+		expect(send).not.toHaveBeenCalled()
+		expect(vi.getTimerCount()).toBe(0)
 	})
 })

@@ -109,6 +109,7 @@ Regex [LIB]: `^HWC#([0-9]+)(|.([0-9]+))=(Down|Up|Press|Abs|Speed|Enc)(|:([-0-9,]
 - **Encoder push:** a single `HWC#<id>=Press`, no Down/Up [HW]. [DC] says `Press` repeats after 1 s hold. With `_bluePillReady=1` pushes become Down/Up [V2]. Handle both forms.
 - **Intensity (joystick, rocker):** `HWC#<id>=Speed:<-500..500>` from `iv`/`ih`/`ir`, on change up to ~20 Hz, normally ending `Speed:0` [HW]; the joystick rotate axis can come to rest a few units off 0 (the joystick capture ends on `HWC#62=Speed:-3`), which the plugin reads as 0 (intensity values within its deadband of 0 count as 0; the deadband is a surface setting, default 6). On the PTZ Extreme: HWC 58, 60, 61, 62. Exposed as analog input variables.
 - **Absolute (fader, T-bar):** `HWC#<id>=Abs:<0..1000>` from `av`/`ah`/`ar`. The PTZ Extreme has none. Exposed as analog input variables.
+- **No way to stop input reporting** [LIB]: the command set (`tools/rwp-converter/main.go`, the `Command` and `HWCState` messages in `ibeam_rawpanel`) has nothing that disables an HWC's input events or analog sampling. `map=<hwc>:<n>` is panel → client only, and `HWCrawADCValues#<id>=0|1` only adds or removes extra `Raw:` events. Every client gets every event anyway, so such a command would also affect other clients (PTZJoystickControl reads the same joystick). A client that doesn't want an axis ignores its events.
 - Other unsolicited lines: `_isSleeping=0|1`, `map=`, `BSY`, `RDY`, `ping`.
 
 ## Topology (`PanelTopology?`)

@@ -10,6 +10,7 @@ import {
 	DEFAULT_ANALOG_INTERVAL_MS,
 	deadbandFieldId,
 	defaultAxisTuning,
+	enabledFieldId,
 	fullScale,
 	saturationFieldId,
 	saturationRange,
@@ -67,6 +68,14 @@ function axisFields(axis: AnalogAxis): SomeCompanionInputField[] {
 	const travel = axis.mode === 'Speed' ? '-500 to 500' : '0 to 1000'
 	const defaults = defaultAxisTuning(axis.mode)
 	return [
+		{
+			id: enabledFieldId(axis.hwc),
+			type: 'checkbox',
+			label: `${axis.name}: enabled`,
+			tooltip:
+				'Off: this axis sends nothing to Companion, and a joystick or rocker is set back to 0 when turned off. The panel still reports the axis (Raw Panel has no command to stop it); the plugin ignores it.',
+			default: defaults.enabled,
+		},
 		{
 			id: deadbandFieldId(axis.hwc),
 			type: 'number',

@@ -7,6 +7,8 @@
 import type { AnalogAxis, AnalogMode } from './topology.js'
 
 export interface AxisTuning {
+	/** A disabled axis sends nothing; its input events are ignored. */
+	enabled: boolean
 	/**
 	 * In panel units, measured from 0: a value this close to 0 reads 0. Also the change threshold:
 	 * changes smaller than this are not sent. 0 sends every change.
@@ -30,7 +32,7 @@ export function fullScale(mode: AnalogMode): number {
 
 /** The joystick jitters by about ±5 at rest; saturation at full travel is off. */
 export function defaultAxisTuning(mode: AnalogMode): AxisTuning {
-	return { deadband: 6, saturation: fullScale(mode) }
+	return { enabled: true, deadband: 6, saturation: fullScale(mode) }
 }
 
 /** Companion's variable-trigger throttle is about 20 Hz. */
@@ -52,10 +54,11 @@ export function saturationRange(mode: AnalogMode): Range {
 /** Surface config field ids for an axis's tuning */
 export const deadbandFieldId = (hwc: number): string => `analogDeadband_${hwc}`
 export const saturationFieldId = (hwc: number): string => `analogSaturation_${hwc}`
+export const enabledFieldId = (hwc: number): string => `analogEnabled_${hwc}`
 
 /**
- * The tuning from the surface config fields: `analogInterval`, and per axis `analogDeadband_<hwc>`
- * and `analogSaturation_<hwc>`. An axis without its own dead zone takes the old single
+ * The tuning from the surface config fields: `analogInterval`, and per axis `analogEnabled_<hwc>`
+ * (on unless set to false), `analogDeadband_<hwc>` and `analogSaturation_<hwc>`. An axis without its own dead zone takes the old single
  * `analogDeadband` setting, so it carries over. A saturation not above the dead zone is ignored.
  */
 export function parseAnalogTuning(config: Record<string, unknown>, axes: readonly AnalogAxis[]): AnalogTuning {
@@ -68,7 +71,11 @@ export function parseAnalogTuning(config: Record<string, unknown>, axes: readonl
 			DEADBAND_RANGE,
 		)
 		const saturation = parseWholeNumber(config[saturationFieldId(hwc)], fallback.saturation, saturationRange(mode))
-		byHwc[hwc] = { deadband, saturation: saturation > deadband ? saturation : fallback.saturation }
+		byHwc[hwc] = {
+			enabled: config[enabledFieldId(hwc)] !== false,
+			deadband,
+			saturation: saturation > deadband ? saturation : fallback.saturation,
+		}
 	}
 	return {
 		intervalMs: parseWholeNumber(config.analogInterval, DEFAULT_ANALOG_INTERVAL_MS, ANALOG_INTERVAL_RANGE),
@@ -119,6 +126,8 @@ export class AnalogSender {
 	readonly #send: (variableId: string, value: number) => void
 	readonly #isLocked: () => boolean
 	#tuning: Readonly<AnalogTuning> = { intervalMs: DEFAULT_ANALOG_INTERVAL_MS, axes: {} }
+	/** False when every axis is disabled: then input does no work at all */
+	#anyEnabled = true
 	#stopped = false
 
 	constructor(axes: AnalogAxis[], send: (variableId: string, value: number) => void, isLocked: () => boolean) {
@@ -135,9 +144,25 @@ export class AnalogSender {
 		}
 	}
 
-	/** New tuning, applied from the next value. A trailing send already queued keeps its time. */
+	/**
+	 * New tuning, applied from the next value. A trailing send already queued keeps its time. An axis
+	 * that is now disabled drops its queued value and is put at rest, as `rest()` does, so Companion
+	 * isn't left holding it mid-travel.
+	 */
 	configure(tuning: Readonly<AnalogTuning>): void {
 		this.#tuning = tuning
+		this.#anyEnabled = false
+		for (const state of this.#byHwc.values()) {
+			if (this.#isEnabled(state)) {
+				this.#anyEnabled = true
+			} else if (!this.#stopped) {
+				// Only where Companion holds a non-zero value: a disabled axis otherwise sends nothing
+				this.#cancel(state)
+				if (state.axis.mode === 'Speed' && state.lastSent !== undefined && state.lastSent !== 0) {
+					this.#emit(state, 0)
+				}
+			}
+		}
 	}
 
 	/**
@@ -146,8 +171,9 @@ export class AnalogSender {
 	 * travel. While Companion is locked only 0 goes out.
 	 */
 	input(hwc: number, raw: number): void {
+		if (!this.#anyEnabled) return
 		const state = this.#byHwc.get(hwc)
-		if (!state || this.#stopped) return
+		if (!state || this.#stopped || !this.#isEnabled(state)) return
 		const mode = state.axis.mode
 		const { intervalMs } = this.#tuning
 		const tuning = this.#tuning.axes[hwc] ?? defaultAxisTuning(mode)
@@ -187,12 +213,14 @@ export class AnalogSender {
 	}
 
 	/**
-	 * Put every intensity axis (joystick, rocker) at rest: drop queued values and send 0 where
-	 * Companion has anything else. Absolute axes (faders) keep their value.
+	 * Put every enabled intensity axis (joystick, rocker) at rest: drop queued values and send 0 where
+	 * Companion has anything else. Absolute axes (faders) keep their value. Disabled axes were put at
+	 * rest when they were disabled and send nothing more.
 	 */
 	rest(): void {
 		if (this.#stopped) return
 		for (const state of this.#byHwc.values()) {
+			if (!this.#isEnabled(state)) continue
 			this.#cancel(state)
 			if (state.axis.mode === 'Speed' && state.lastSent !== 0) this.#emit(state, 0)
 		}
@@ -201,6 +229,10 @@ export class AnalogSender {
 	stop(): void {
 		this.#stopped = true
 		for (const state of this.#byHwc.values()) this.#cancel(state)
+	}
+
+	#isEnabled(state: AxisState): boolean {
+		return this.#tuning.axes[state.axis.hwc]?.enabled ?? true
 	}
 
 	#cancel(state: AxisState): void {
