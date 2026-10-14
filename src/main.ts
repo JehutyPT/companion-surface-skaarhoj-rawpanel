@@ -1,28 +1,62 @@
-import type { OpenSurfaceResult, SurfaceContext, SurfacePlugin } from '@companion-surface/base'
+import {
+	createModuleLogger,
+	type OpenSurfaceResult,
+	type SurfaceContext,
+	type SurfacePlugin,
+} from '@companion-surface/base'
+import type { ConnectionTimings } from './connection.js'
+import { RawPanelSurface } from './instance.js'
+import type { RawPanelDeviceInfo } from './link.js'
 import { RawPanelPluginRemoteService } from './remote.js'
 
-export interface RawPanelDeviceInfo {
-	address: string
-	port: number
+export type { RawPanelDeviceInfo } from './link.js'
+
+export interface RawPanelPluginOptions {
+	/** Connection timings; tests shorten them */
+	timings?: Partial<ConnectionTimings>
 }
 
-const RawPanelPlugin: SurfacePlugin<RawPanelDeviceInfo> = {
-	remote: new RawPanelPluginRemoteService(),
+const logger = createModuleLogger('Plugin')
 
-	init: async (): Promise<void> => {
-		// Nothing to do
-	},
-	destroy: async (): Promise<void> => {
-		// Nothing to do
-	},
+export function createRawPanelPlugin(options: RawPanelPluginOptions = {}): SurfacePlugin<RawPanelDeviceInfo> {
+	const remote = new RawPanelPluginRemoteService(options.timings)
 
-	openSurface: async (
-		_surfaceId: string,
-		_pluginInfo: RawPanelDeviceInfo,
-		_context: SurfaceContext,
-	): Promise<OpenSurfaceResult> => {
-		throw new Error('Not implemented')
-	},
+	return {
+		remote,
+
+		init: async (): Promise<void> => {
+			await remote.init()
+		},
+		destroy: async (): Promise<void> => {
+			await remote.destroy()
+		},
+
+		openSurface: async (
+			surfaceId: string,
+			pluginInfo: RawPanelDeviceInfo,
+			context: SurfaceContext,
+		): Promise<OpenSurfaceResult> => {
+			const link = pluginInfo.link
+			const layout = link.layout
+			if (!link.isCurrent(pluginInfo) || !layout) {
+				throw new Error(`Panel ${link.address}:${link.port} changed or was removed before ${surfaceId} opened`)
+			}
+			logger.debug(`Opening ${surfaceId} with ${layout.controls.length} controls`)
+
+			return {
+				surface: new RawPanelSurface(surfaceId, 'SKAARHOJ Raw Panel', link, layout, context),
+				registerProps: {
+					brightness: false,
+					surfaceLayout: layout.surfaceLayout,
+					pincodeMap: null,
+					location: `${link.address}:${link.port}`,
+					configFields: null,
+				},
+			}
+		},
+	}
 }
+
+const RawPanelPlugin = createRawPanelPlugin()
 
 export default RawPanelPlugin
