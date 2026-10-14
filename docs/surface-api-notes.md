@@ -47,6 +47,7 @@ Elgato's pattern:
 - So read `PanelTopology?` before emitting `surfacesConnected` (or inside `openSurface`, which is async) and build the layout from it.
 - To change layout later: `context.disconnect(err)` and re-emit `surfacesConnected` with a new `deviceHandle`. `close()` must be idempotent.
 - Settings that affect the layout (the custom `control → row/column` map) must be remote connection `configFields`: they arrive in `startConnections` before `openSurface`. Saving one reconnects. Surface `configFields` arrive via `updateConfig` after open, too late for layout.
+- Here that is `controlMap` (`src/control-map.ts`, applied last in `buildLayout`). Its canonical form is part of the link key (`address:port|map`), so a changed map stops the old link (`disconnect('Connection removed')`) and starts a new one, which re-announces (and retries if Companion still holds the old surface); a re-save with only whitespace or separators changed does nothing. Two connection entries for one panel with different maps make two links to it, and Companion rejects the second surface (same id).
 
 Layout types (1.4 derives them from the zod schema in `src/surface-layout-schema.ts`, re-exported from the root):
 

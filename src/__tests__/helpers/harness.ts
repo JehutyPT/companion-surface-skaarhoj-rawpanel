@@ -40,9 +40,9 @@ export class Harness {
 		await this.plugin.init()
 	}
 
-	async connect(connectionId = 'conn1'): Promise<void> {
+	async connect(connectionId = 'conn1', config: Record<string, unknown> = {}): Promise<void> {
 		await this.plugin.remote!.startConnections([
-			{ connectionId, config: { address: '127.0.0.1', port: this.panel.port } },
+			{ connectionId, config: { address: '127.0.0.1', port: this.panel.port, ...config } },
 		])
 	}
 

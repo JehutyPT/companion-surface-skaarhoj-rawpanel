@@ -8,6 +8,7 @@ import {
 } from '@companion-surface/base'
 import EventEmitter from 'node:events'
 import type { ConnectionTimings } from './connection.js'
+import { formatControlMap, parseControlMap } from './control-map.js'
 import { PanelLink, type RawPanelDeviceInfo } from './link.js'
 
 export const DEFAULT_TCP_PORT = 9923
@@ -15,12 +16,15 @@ export const DEFAULT_TCP_PORT = 9923
 export interface RawPanelConnectionConfig {
 	address: string
 	port: number
+	/** Custom control positions, `<hwc>=<row>/<column>, ...` (see `control-map.ts`) */
+	controlMap?: string
 }
 
 /**
- * Companion's remote connections. Several connection entries may point at the same
- * `address:port`; they share one link, ref-counted, so editing an unrelated field (or adding a
- * duplicate) does not reconnect.
+ * Companion's remote connections. Several connection entries with the same `address:port` and
+ * control map share one link, ref-counted, so editing an unrelated field (or adding a duplicate)
+ * does not reconnect. The control map is part of the link's identity: the layout is fixed when
+ * the surface opens, so saving a different map stops the old link and starts a new one.
  */
 export class RawPanelPluginRemoteService
 	extends EventEmitter<SurfacePluginRemoteEvents<RawPanelDeviceInfo>>
@@ -58,6 +62,14 @@ export class RawPanelPluginRemoteService
 			min: 1,
 			max: 65535,
 		},
+		{
+			id: 'controlMap',
+			type: 'textinput',
+			label: 'Control positions',
+			default: '',
+			tooltip:
+				'Optional. Move controls on the Companion grid: <HWC>=<row>/<column>, separated by commas, e.g. 37=1/5, 38=1/6. Rows and columns start at 0 (top left). Unlisted controls keep their automatic position. Saving reconnects the panel.',
+		},
 	]
 
 	readonly checkConfigMatchesExpression: string | null =
@@ -89,17 +101,20 @@ export class RawPanelPluginRemoteService
 				continue
 			}
 
-			const key = `${address}:${port}`
+			const { map, warnings } = parseControlMap(config.controlMap)
+			const mapKey = formatControlMap(map)
+			const key = mapKey ? `${address}:${port}|${mapKey}` : `${address}:${port}`
 			const oldKey = this.#activeConnections.get(info.connectionId)
 			if (oldKey === key) continue
 			if (oldKey !== undefined) this.#release(oldKey)
+			for (const warning of warnings) this.#logger.warn(warning)
 
 			this.#activeConnections.set(info.connectionId, key)
 			const entry = this.#links.get(key)
 			if (entry) {
 				entry.refs++
 			} else {
-				const link = new PanelLink(address, port, this.#timings, (surface) => this.#announce(surface))
+				const link = new PanelLink(address, port, this.#timings, (surface) => this.#announce(surface), map)
 				this.#links.set(key, { link, refs: 1 })
 				link.start()
 			}

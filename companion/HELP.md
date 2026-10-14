@@ -14,6 +14,20 @@ This plugin is in development. This page grows as features ship.
 
 The panel appears as a surface named after its model. Its button grid follows the panel's physical layout, read from the panel when it connects. A control alone in its row joins the nearest row, and a run of controls of the same kind (such as a row of knobs) takes neighbouring columns with no gaps.
 
+### Moving controls on the grid
+
+If you want some controls somewhere else on Companion's grid, list them in the connection's **Control positions** field (in **Surfaces** → **Remote Surfaces**). Each entry is `<HWC>=<row>/<column>`, separated by commas (semicolons work too), for example:
+
+`37=1/5, 38=1/6, 57=4/0`
+
+- HWC is the panel's number for the control. On the PTZ Extreme: Cam1-12 are 1-12, X1-12 are 13-24, A1-A9 are 37-45, A10-A12 are 54-56, Knob A-H are 46-53, Iris is 57, Focus is 59 and the joystick button is 63.
+- Rows and columns start at 0: row 0 is the top row and column 0 the left column of the panel's grid.
+- Controls you don't list keep their automatic position. Leave the field empty for the automatic layout.
+- If a listed control lands on a cell another control had, that control moves one column right, pushing the controls after it in its row along until there is a free cell.
+- If two entries name the same cell, the first one wins and the later control is placed as if it were not listed.
+- Entries that don't parse, controls not on the panel, and joystick, rocker or fader axes (they are variables, not buttons) are skipped, with a warning in Companion's log.
+- Saving a change to this field reconnects the panel and rebuilds the surface. Your Companion buttons stay where they are on the page: a moved control uses the button at its new position.
+
 ### Controls
 
 - Buttons are keys. Four-way buttons act as a single key: pressing any edge presses the key.

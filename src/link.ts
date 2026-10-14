@@ -10,6 +10,7 @@ import { createModuleLogger, type DetectionSurfaceInfo, type ModuleLogger } from
 import { randomUUID } from 'node:crypto'
 import EventEmitter from 'node:events'
 import { DEFAULT_TIMINGS, PanelConnection, type ConnectionTimings, type PanelIdentity } from './connection.js'
+import type { ControlMap } from './control-map.js'
 import type { PanelCommand, PanelEvent } from './protocol.js'
 import { buildLayout, type PanelLayout, type Topology } from './topology.js'
 
@@ -49,6 +50,8 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	readonly #logger: ModuleLogger
 	readonly #timings: ConnectionTimings
 	readonly #loggedUnknown = new Set<string>()
+	readonly #controlMap: ControlMap
+	readonly #loggedMapNotes = new Set<string>()
 
 	#stopped = false
 	#surfaceId: string | undefined
@@ -66,10 +69,12 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		port: number,
 		timings: Partial<ConnectionTimings>,
 		announce: (info: DetectionSurfaceInfo<RawPanelDeviceInfo>) => void,
+		controlMap: ControlMap = new Map(),
 	) {
 		super()
 		this.address = address
 		this.port = port
+		this.#controlMap = controlMap
 		this.#announce = announce
 		this.#timings = { ...DEFAULT_TIMINGS, ...timings }
 		this.#rejectRetryMs = this.#timings.rejectRetryMs
@@ -177,7 +182,12 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	#onOnline(identity: PanelIdentity): void {
 		const surfaceId = identity.serial ? `skaarhoj:${identity.serial}` : `skaarhoj:${this.address}:${this.port}`
 		this.#logUnknownControls(identity.topology)
-		const layout = buildLayout(identity.topology)
+		const layout = buildLayout(identity.topology, this.#controlMap)
+		for (const note of layout.mapNotes) {
+			if (this.#loggedMapNotes.has(note)) continue
+			this.#loggedMapNotes.add(note)
+			this.#logger.warn(note)
+		}
 		const samePanelAndLayout = surfaceId === this.#surfaceId && layout.signature === this.#layout?.signature
 
 		this.#surfaceId = surfaceId

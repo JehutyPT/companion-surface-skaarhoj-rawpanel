@@ -4,6 +4,7 @@
  * specific HWC id; everything comes from the report.
  */
 import type { SurfaceInputVariable, SurfaceSchemaLayoutDefinition } from '@companion-surface/base'
+import type { ControlMap } from './control-map.js'
 import type { AnalogMode } from './protocol.js'
 
 export type { AnalogMode } from './protocol.js'
@@ -91,6 +92,8 @@ export interface PanelLayout {
 	surfaceLayout: SurfaceSchemaLayoutDefinition
 	/** A string that is equal for two layouts exactly when Companion would see the same surface */
 	signature: string
+	/** What applying the control map skipped or moved, for the log */
+	mapNotes: string[]
 }
 
 /** Style presets by feedback: `default` is colour only (an LED, no display). */
@@ -285,8 +288,9 @@ function nearestFreeColumn(occupied: Set<string>, row: number, column: number): 
  * 4. Within a row, neighbours of the same topology type close up: each takes the column right after
  *    the previous one when that is its neighbour. This only moves controls left and past no other
  *    control, so it cannot collide.
+ * 5. The control map, if any, then overrides positions (see `applyControlMap`).
  */
-export function buildLayout(topology: Topology): PanelLayout {
+export function buildLayout(topology: Topology, controlMap: ControlMap = new Map()): PanelLayout {
 	// One control per HWC id: the first one listed wins.
 	const byHwc = new Map<number, UsableControl>()
 	for (const control of topology.controls.filter(isUsable)) {
@@ -322,6 +326,7 @@ export function buildLayout(topology: Topology): PanelLayout {
 		if (previous === undefined || cells[previous].row !== cells[i].row) return
 		if (usable[previous].typeKey === usable[i].typeKey) cells[i].column = cells[previous].column + 1
 	})
+	const mapNotes = applyControlMap(topology, usable, cells, controlMap)
 
 	const controls: LayoutControl[] = usable.map((c, i) => ({
 		controlId: `hwc/${c.hwc}`,
@@ -352,7 +357,68 @@ export function buildLayout(topology: Topology): PanelLayout {
 	}
 
 	const axes = buildAxes(topology)
-	return { controls, axes, surfaceLayout, signature: JSON.stringify({ controls, axes }) }
+	return { controls, axes, surfaceLayout, signature: JSON.stringify({ controls, axes }), mapNotes }
+}
+
+/**
+ * Put each mapped control on its cell, in map order. An entry for a HWC that is not a button or
+ * encoder on this panel, or for a cell an earlier entry took, is skipped. Then every other control,
+ * taken by row and column, keeps its cell if free or moves right to the next free column in its
+ * row, so a control on a mapped cell pushes the ones after it along until a gap. Nothing is
+ * dropped. Updates `cells` in place and returns notes for what was skipped or moved.
+ */
+function applyControlMap(
+	topology: Topology,
+	usable: UsableControl[],
+	cells: { row: number; column: number }[],
+	controlMap: ControlMap,
+): string[] {
+	const notes: string[] = []
+	if (controlMap.size === 0) return notes
+
+	const indexByHwc = new Map(usable.map((c, i) => [c.hwc, i]))
+	const occupied = new Set<string>()
+	const mapped = new Set<number>()
+	for (const [hwc, cell] of controlMap) {
+		const i = indexByHwc.get(hwc)
+		if (i === undefined) {
+			const control = topology.controls.find((c) => c.hwc === hwc)
+			notes.push(
+				!control
+					? `Control positions: HWC ${hwc} is not on this panel; ignored`
+					: control.kind === 'analog'
+						? `Control positions: HWC ${hwc} (${control.label}) is an analog control, sent as a variable, not a button; ignored`
+						: `Control positions: HWC ${hwc} (${control.label}) is not a button or encoder; ignored`,
+			)
+			continue
+		}
+		const key = `${cell.row}/${cell.column}`
+		if (occupied.has(key)) {
+			notes.push(
+				`Control positions: row ${cell.row} column ${cell.column} is already taken; HWC ${hwc} keeps its position`,
+			)
+			continue
+		}
+		occupied.add(key)
+		cells[i] = { ...cell }
+		mapped.add(i)
+	}
+
+	const others = usable
+		.map((_, i) => i)
+		.filter((i) => !mapped.has(i))
+		.sort((a, b) => cells[a].row - cells[b].row || cells[a].column - cells[b].column)
+	for (const i of others) {
+		const { row } = cells[i]
+		let column = cells[i].column
+		while (occupied.has(`${row}/${column}`)) column++
+		if (column !== cells[i].column) {
+			notes.push(`Control positions: HWC ${usable[i].hwc} moved to ${row}/${column} to make room for a mapped control`)
+		}
+		occupied.add(`${row}/${column}`)
+		cells[i] = { row, column }
+	}
+	return notes
 }
 
 function slug(text: string): string {
