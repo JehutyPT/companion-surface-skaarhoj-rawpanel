@@ -37,3 +37,4 @@ Spec, decisions, slices and backlog: [JehutyPT/companion-surface-skaarhoj-rawpan
 - `package.json` scripts are the source of truth for build, lint and format. Yarn 4 via corepack (`corepack yarn …`).
 - Commits are authored by the user alone: no `Co-Authored-By` trailers.
 - Solo project: no PR process required; branch, commit, merge.
+- Local dev: the Companion REST API URL and key are in `.env.local` (gitignored; `COMPANION_URL`, `COMPANION_API_KEY`, Bearer auth). It can press/rotate buttons at a location and read/set custom variables, but cannot create buttons or pages.
