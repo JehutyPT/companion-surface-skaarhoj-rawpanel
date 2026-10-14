@@ -58,8 +58,8 @@ export const enabledFieldId = (hwc: number): string => `analogEnabled_${hwc}`
 
 /**
  * The tuning from the surface config fields: `analogInterval`, and per axis `analogEnabled_<hwc>`
- * (on unless set to false), `analogDeadband_<hwc>` and `analogSaturation_<hwc>`. An axis without its own dead zone takes the old single
- * `analogDeadband` setting, so it carries over. A saturation not above the dead zone is ignored.
+ * (on unless set to false), `analogDeadband_<hwc>` and `analogSaturation_<hwc>`. An axis without
+ * its own dead zone takes the old single `analogDeadband` setting, so it carries over. A saturation not above the dead zone is ignored.
  */
 export function parseAnalogTuning(config: Record<string, unknown>, axes: readonly AnalogAxis[]): AnalogTuning {
 	const byHwc: Record<number, AxisTuning> = {}
@@ -126,8 +126,6 @@ export class AnalogSender {
 	readonly #send: (variableId: string, value: number) => void
 	readonly #isLocked: () => boolean
 	#tuning: Readonly<AnalogTuning> = { intervalMs: DEFAULT_ANALOG_INTERVAL_MS, axes: {} }
-	/** False when every axis is disabled: then input does no work at all */
-	#anyEnabled = true
 	#stopped = false
 
 	constructor(axes: AnalogAxis[], send: (variableId: string, value: number) => void, isLocked: () => boolean) {
@@ -151,17 +149,10 @@ export class AnalogSender {
 	 */
 	configure(tuning: Readonly<AnalogTuning>): void {
 		this.#tuning = tuning
-		this.#anyEnabled = false
+		if (this.#stopped) return
 		for (const state of this.#byHwc.values()) {
-			if (this.#isEnabled(state)) {
-				this.#anyEnabled = true
-			} else if (!this.#stopped) {
-				// Only where Companion holds a non-zero value: a disabled axis otherwise sends nothing
-				this.#cancel(state)
-				if (state.axis.mode === 'Speed' && state.lastSent !== undefined && state.lastSent !== 0) {
-					this.#emit(state, 0)
-				}
-			}
+			// 0 only where Companion is known to hold another value; otherwise nothing
+			if (!this.#isEnabled(state)) this.#putAtRest(state, false)
 		}
 	}
 
@@ -171,7 +162,6 @@ export class AnalogSender {
 	 * travel. While Companion is locked only 0 goes out.
 	 */
 	input(hwc: number, raw: number): void {
-		if (!this.#anyEnabled) return
 		const state = this.#byHwc.get(hwc)
 		if (!state || this.#stopped || !this.#isEnabled(state)) return
 		const mode = state.axis.mode
@@ -220,9 +210,7 @@ export class AnalogSender {
 	rest(): void {
 		if (this.#stopped) return
 		for (const state of this.#byHwc.values()) {
-			if (!this.#isEnabled(state)) continue
-			this.#cancel(state)
-			if (state.axis.mode === 'Speed' && state.lastSent !== 0) this.#emit(state, 0)
+			if (this.#isEnabled(state)) this.#putAtRest(state, true)
 		}
 	}
 
@@ -233,6 +221,16 @@ export class AnalogSender {
 
 	#isEnabled(state: AxisState): boolean {
 		return this.#tuning.axes[state.axis.hwc]?.enabled ?? true
+	}
+
+	/**
+	 * Drop the axis's queued value and, for an intensity axis, send 0 unless Companion already has it.
+	 * `ifNeverSent`: also send 0 when nothing was sent yet (Companion's value is unknown).
+	 */
+	#putAtRest(state: AxisState, ifNeverSent: boolean): void {
+		this.#cancel(state)
+		if (state.axis.mode !== 'Speed' || state.lastSent === 0) return
+		if (state.lastSent !== undefined || ifNeverSent) this.#emit(state, 0)
 	}
 
 	#cancel(state: AxisState): void {
