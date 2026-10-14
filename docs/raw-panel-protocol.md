@@ -179,6 +179,20 @@ Only 1, 46 and 57–63 were physically tested.
 - On `_isSleeping=0`, re-send every LED and display.
 - OLED burn-in isn't covered by warranty: weigh before `SleepTimer=0`.
 
+## What the plugin sends
+
+Implemented in `src/protocol.ts`, `src/connection.ts` and `src/instance.ts`:
+
+- Connect: `list`, `PanelTopology?`, then every control's LED (and display, where there is one). No topology within the timeout, or unparseable topology, fails the connection with a logged error and retries with backoff; there is no built-in layout.
+- LED: black or no colour → `HWC#n=0`. Otherwise `HWCc#n=<rgb>` then `HWC#n=4`. Pressed: dimmed (`5`) in the button colour, or `HWCc#n=130` (white) + `4` if the button has no colour.
+- Text, display controls only (sanitised to ASCII 32–126 without `|`, 24 chars per line, whole command ≤ 63 chars):
+  - empty → `HWCt#n=||||||`
+  - one line → `HWCt#n=1|10||<line>`
+  - two or more lines → `HWCt#n=1|11|||1|<line1>|<line2>` (line 2, then line 1, cut to fit).
+- Liveness: `ping` every second; any inbound line counts as alive; 5 s of silence drops the link. Reconnect backoff 1 s doubling to 30 s, reset by a received topology.
+- Writes: per-key (`HWC#n`, `HWCc#n`, `HWCt#n`) diffs and coalescing, up to 8 lines every 20 ms, held on `BSY` until `RDY` or a panel `ping`. `ping`, `ack`, `list` and `PanelTopology?` bypass the queue.
+- No panel settings.
+
 ## Defects in companion-module-skaarhoj-rawpanel to avoid
 
 1. No line buffering; topology reassembled by an `endsWith('}}}')` hack.
