@@ -1,0 +1,51 @@
+{
+	"name": "companion-surface-skaarhoj-rawpanel",
+	"version": "0.1.0",
+	"main": "dist/main.js",
+	"type": "module",
+	"scripts": {
+		"postinstall": "husky",
+		"format": "prettier -w .",
+		"package": "run build && companion-surface-build",
+		"build": "rimraf dist && run build:main",
+		"build:main": "tsc -p tsconfig.build.json",
+		"dev": "tsc -p tsconfig.build.json --watch",
+		"lint:raw": "eslint",
+		"lint": "run lint:raw .",
+		"test": "vitest run"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/JehutyPT/companion-surface-skaarhoj-rawpanel.git"
+	},
+	"engines": {
+		"node": "^22.21",
+		"yarn": "^4"
+	},
+	"dependencies": {
+		"@companion-surface/base": "~1.4.1"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^3.1.1",
+		"@types/node": "^22.20.1",
+		"eslint": "^10.10.0",
+		"husky": "^9.1.7",
+		"lint-staged": "^17.0.8",
+		"prettier": "^3.9.5",
+		"rimraf": "^6.1.3",
+		"typescript": "~6.0.3",
+		"typescript-eslint": "^8.63.0",
+		"vitest": "^4.1.10"
+	},
+	"prettier": "@companion-module/tools/.prettierrc.json",
+	"lint-staged": {
+		"*.{css,json,md,scss}": [
+			"prettier --write"
+		],
+		"*.{ts,tsx,js,jsx}": [
+			"eslint --fix"
+		]
+	},
+	"packageManager": "yarn@4.18.1"
+}
