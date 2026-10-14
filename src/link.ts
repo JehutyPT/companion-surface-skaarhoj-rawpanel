@@ -71,6 +71,11 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		})
 	}
 
+	/** Product name for Companion, e.g. `SKAARHOJ SK_PTZEXTREMEV2` */
+	get description(): string {
+		return this.#description
+	}
+
 	get layout(): PanelLayout | undefined {
 		return this.#layout
 	}

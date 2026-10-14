@@ -44,7 +44,7 @@ export function createRawPanelPlugin(options: RawPanelPluginOptions = {}): Surfa
 			logger.debug(`Opening ${surfaceId} with ${layout.controls.length} controls`)
 
 			return {
-				surface: new RawPanelSurface(surfaceId, 'SKAARHOJ Raw Panel', link, layout, context),
+				surface: new RawPanelSurface(surfaceId, link.description, link, layout, context),
 				registerProps: {
 					brightness: false,
 					surfaceLayout: layout.surfaceLayout,

@@ -11,7 +11,7 @@ import {
 	type SurfaceDrawProps,
 	type SurfaceInstance,
 } from '@companion-surface/base'
-import type { PanelLink, PanelLinkEvents } from './link.js'
+import type { PanelLink } from './link.js'
 import { ledCommands, textCommand, type PanelCommand, type PanelEvent } from './protocol.js'
 import type { LayoutControl, PanelLayout } from './topology.js'
 
@@ -108,16 +108,10 @@ export class RawPanelSurface implements SurfaceInstance {
 		if (on === this.#listening) return
 		this.#listening = on
 		const method = on ? 'on' : 'off'
-		const handlers: { [K in keyof PanelLinkEvents]: (...args: PanelLinkEvents[K]) => void } = {
-			input: this.#onInput,
-			resync: this.#onResync,
-			offline: this.#onOffline,
-			disconnect: this.#onDisconnect,
-		}
-		this.#link[method]('input', handlers.input)
-		this.#link[method]('resync', handlers.resync)
-		this.#link[method]('offline', handlers.offline)
-		this.#link[method]('disconnect', handlers.disconnect)
+		this.#link[method]('input', this.#onInput)
+		this.#link[method]('resync', this.#onResync)
+		this.#link[method]('offline', this.#onOffline)
+		this.#link[method]('disconnect', this.#onDisconnect)
 	}
 
 	#commandsFor(control: LayoutControl, state: ControlState): PanelCommand[] {
