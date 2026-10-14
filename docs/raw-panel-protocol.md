@@ -22,6 +22,7 @@ Provenance tags:
 
 - Server mode needs no handshake [DC]. `ActivePanel=1` and answering the panel's `list` are client-mode only.
 - On connect the panel sends `RDY` and one `map=<id>:<id>` per input HWC [HW]. `RDY` is not always first, and a second client gets `map=` but no `RDY`. Every new connection re-sends `map=` to all clients. Accept `map=` at any time; never wait for `RDY`.
+- Captured 2026-10-14 (v2.5.27, another client connected): no `RDY`; the `list` reply (`_model`, `_serial`, `_version`, `_bluePillReady`) came ~20 ms after connect, then the `map=` lines, then the topology at ~110 ms with no stall. The panel sent no `ping`s of its own over 60 s. The `_panelTopology_svgbase` line was ~3 kB.
 - On connect the panel **blanks all LEDs and displays** and hands them to the client; it restores its own lights on disconnect [HW]. Push full state on every connect.
 - The panel reports no current control state. Start every axis at 0.
 - The panel stalls ~0.4–0.5 s after every connect: `ack`s to pings sent then arrive 420–530 ms late [HW]. Allow ~1 s grace before any dead-man applies.
@@ -158,7 +159,9 @@ The first test panel. The plugin builds its layout from topology, so this table 
 | 62 | Joystick rotate | 98 | `ir` |
 | 63 | Joystick top button | 99 | `b` |
 
-Only 1, 46 and 57–63 were physically tested.
+Types 16 (Iris, Focus) and 99 (top button) have no `out`: no LED. Types 16 and 96–99 give only `w` (round), no `h`. 60–63 share one position (3280, 526).
+
+Captured 2026-10-14: `Down`/`Up` with edges 1/2/4/8 on the four-way buttons (one edge at a time); plain `HWC#63=Down`/`Up`; `HWC#n=Enc:±1..3` and `HWC#n=Press` on 46, 57 and 59; `HWC#58=Speed:-500..500`; `HWC#60/61/62=Speed:<n>` interleaved. Every input type on the panel was exercised.
 
 ## Flow control
 
@@ -183,7 +186,7 @@ Only 1, 46 and 57–63 were physically tested.
 
 Implemented in `src/protocol.ts`, `src/connection.ts` and `src/instance.ts`:
 
-- Connect: `list`, `PanelTopology?`, then every control's LED (and display, where there is one). No topology within the timeout, or unparseable topology, fails the connection with a logged error and retries with backoff; there is no built-in layout.
+- Connect: `list`, `PanelTopology?`, then every control's LED (where it has an `out`) and display (where it has a `disp`). No topology within the timeout, or unparseable topology, fails the connection with a logged error and retries with backoff; there is no built-in layout.
 - LED: black or no colour → `HWC#n=0`. Otherwise `HWCc#n=<rgb>` then `HWC#n=4`. Pressed: dimmed (`5`) in the button colour, or `HWCc#n=130` (white) + `4` if the button has no colour.
 - Text, display controls only (sanitised to ASCII 32–126 without `|`, 24 chars per line, whole command ≤ 63 chars):
   - empty → `HWCt#n=||||||`
@@ -192,6 +195,8 @@ Implemented in `src/protocol.ts`, `src/connection.ts` and `src/instance.ts`:
 - Liveness: `ping` every second; any inbound line counts as alive; 5 s of silence drops the link. Reconnect backoff 1 s doubling to 30 s, reset by a received topology.
 - Writes: per-key (`HWC#n`, `HWCc#n`, `HWCt#n`) diffs and coalescing, up to 8 lines every 20 ms, held on `BSY` until `RDY` or a panel `ping`. `ping`, `ack`, `list` and `PanelTopology?` bypass the queue.
 - No panel settings.
+
+Layout (`src/topology.ts`): buttons and encoders become controls `hwc/<id>`. Columns and rows are ranks of x and y: taken in order, a control shares the current column (row) when its centre is within half the larger of its own width (height) and that of the column's first control; `h` falls back to `w`. Collisions move right. Style presets: `default` (LED colour), `display` (colour and text), `text` (display, no LED), `none` (neither).
 
 ## Defects in companion-module-skaarhoj-rawpanel to avoid
 

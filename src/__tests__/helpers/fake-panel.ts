@@ -5,13 +5,31 @@ export interface FakePanelOptions {
 	listReply?: string[]
 	/** The JSON sent as `_panelTopology_HWC=` in reply to `PanelTopology?`. `null` = never reply. */
 	topology?: unknown
-	/** Lines sent unprompted on every new connection (the real panel sends `RDY` and `map=`). */
+	/** Lines sent unprompted on every new connection. The real panel sends none. */
 	greeting?: string[]
+	/** The SVG sent as `_panelTopology_svgbase=` before the topology. */
+	svgbase?: string
+	/** Write the topology reply in chunks of this many characters, each in its own write. 0 = one write. */
+	chunkSize?: number
 	/** Delay before answering `ping` with `ack`, in ms. */
 	ackDelayMs?: number
 	/** Answer `ping` at all. */
 	answerPings?: boolean
 }
+
+/**
+ * The `list` reply of the SK_PTZEXTREMEV2 captured 2026-10-14 (fixtures/ptz-extreme-capture-*.log):
+ * identity, then one `map=` line per HWC with an input. The serial is the capture's.
+ */
+export const PTZ_EXTREME_LIST_REPLY = [
+	'_model=SK_PTZEXTREMEV2',
+	'_serial=442845',
+	'_version=v2.5.27',
+	'_bluePillReady=0',
+	...[...Array.from({ length: 24 }, (_, i) => i + 1), ...Array.from({ length: 27 }, (_, i) => i + 37)].map(
+		(n) => `map=${n}:${n}`,
+	),
+]
 
 interface Client {
 	socket: net.Socket
@@ -30,14 +48,11 @@ export class FakeRawPanel {
 
 	constructor(options: FakePanelOptions = {}) {
 		this.options = {
-			listReply: options.listReply ?? [
-				'_model=SK_PTZEXTREMEV2',
-				'_serial=FAKE0001',
-				'_version=v2.5.27',
-				'_bluePillReady=0',
-			],
+			listReply: options.listReply ?? PTZ_EXTREME_LIST_REPLY,
 			topology: options.topology === undefined ? null : options.topology,
-			greeting: options.greeting ?? ['RDY'],
+			greeting: options.greeting ?? [],
+			svgbase: options.svgbase ?? '<svg></svg>',
+			chunkSize: options.chunkSize ?? 0,
 			ackDelayMs: options.ackDelayMs ?? 0,
 			answerPings: options.answerPings ?? true,
 		}
@@ -128,7 +143,17 @@ export class FakeRawPanel {
 			if (this.options.topology === null) return
 			const json =
 				typeof this.options.topology === 'string' ? this.options.topology : JSON.stringify(this.options.topology)
-			write(['_panelTopology_svgbase=<svg></svg>', `_panelTopology_HWC=${json}`])
+			const reply = `_panelTopology_svgbase=${this.options.svgbase}\n_panelTopology_HWC=${json}\n`
+			if (this.options.chunkSize <= 0) {
+				if (!socket.destroyed) socket.write(reply)
+				return
+			}
+			const sendFrom = (offset: number): void => {
+				if (socket.destroyed || offset >= reply.length) return
+				socket.write(reply.slice(offset, offset + this.options.chunkSize))
+				setImmediate(() => sendFrom(offset + this.options.chunkSize))
+			}
+			sendFrom(0)
 		}
 	}
 }

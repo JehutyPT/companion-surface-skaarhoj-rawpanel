@@ -31,7 +31,7 @@ describe('connecting to a panel', () => {
 
 		const info = await harness.waitForAnnouncements()
 
-		expect(info.surfaceId).toBe('skaarhoj:FAKE0001')
+		expect(info.surfaceId).toBe('skaarhoj:442845')
 		expect(info.description).toContain('SK_PTZEXTREMEV2')
 		expect(harness.panel.receivedOnLatest.slice(0, 2)).toEqual(['list', 'PanelTopology?'])
 	})
@@ -44,6 +44,21 @@ describe('connecting to a panel', () => {
 		const info = await harness.waitForAnnouncements()
 
 		expect(info.surfaceId).toBe(`skaarhoj:127.0.0.1:${harness.panel.port}`)
+	})
+
+	test('a long svgbase line split across many chunks does not stop the topology from arriving', async () => {
+		const svgbase = `<svg>${'<path d="M0 0L10 10"/>'.repeat(20000)}</svg>` // ~460 kB
+		harness = new Harness(
+			{ topology: ptzExtremeTopology, svgbase, chunkSize: 1500 },
+			{ ...fastTimings, topologyTimeoutMs: 5000 },
+		)
+		await harness.start()
+		await harness.connect()
+
+		const info = await harness.waitForAnnouncements(1)
+
+		expect(info.surfaceId).toBe('skaarhoj:442845')
+		expect(harness.panel.connectionCount).toBe(1)
 	})
 
 	test('holds announcements made before init until init resolves', async () => {
