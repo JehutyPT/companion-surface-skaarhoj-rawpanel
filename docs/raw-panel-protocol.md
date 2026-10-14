@@ -107,7 +107,7 @@ Regex [LIB]: `^HWC#([0-9]+)(|.([0-9]+))=(Down|Up|Press|Abs|Speed|Enc)(|:([-0-9,]
 - **Four-way buttons:** `HWC#<id>.<edge>=Down|Up`, edge 1 top, 2 left, 4 bottom, 8 right. No centre event: a centre press reports whichever edge closes first [HW]. Slice 1 treats the HWC as one key: track pressed edges, first edge down = key down, last edge up = key up. Per-edge keys are backlog.
 - **Encoders:** `HWC#<id>=Enc:1` / `Enc:-1`, clockwise positive, one line per detent (as close as ~17 ms) [HW].
 - **Encoder push:** a single `HWC#<id>=Press`, no Down/Up [HW]. [DC] says `Press` repeats after 1 s hold. With `_bluePillReady=1` pushes become Down/Up [V2]. Handle both forms.
-- **Intensity (joystick, rocker):** `HWC#<id>=Speed:<-500..500>` from `iv`/`ih`/`ir`, on change up to ~20 Hz, always ending `Speed:0` [HW]. On the PTZ Extreme: HWC 58, 60, 61, 62. Exposed as analog input variables.
+- **Intensity (joystick, rocker):** `HWC#<id>=Speed:<-500..500>` from `iv`/`ih`/`ir`, on change up to ~20 Hz, normally ending `Speed:0` [HW]; the joystick rotate axis can come to rest a few units off 0 (the joystick capture ends on `HWC#62=Speed:-3`), which the plugin's deadband absorbs. On the PTZ Extreme: HWC 58, 60, 61, 62. Exposed as analog input variables.
 - **Absolute (fader, T-bar):** `HWC#<id>=Abs:<0..1000>` from `av`/`ah`/`ar`. The PTZ Extreme has none. Exposed as analog input variables.
 - Other unsolicited lines: `_isSleeping=0|1`, `map=`, `BSY`, `RDY`, `ping`.
 
@@ -172,7 +172,7 @@ Captured 2026-10-14: `Down`/`Up` with edges 1/2/4/8 on the four-way buttons (one
 ## Sleep [HW unless tagged]
 
 - `SleepTimer=<ms>` (0 = never) echoes `_sleepTimer=<ms>`. `SleepTimer?` queries.
-- The timer is global, survives client disconnect, resets to 14400000 (4 h) on reboot. The plugin sends it only when the sleep-timeout option is set, and then on every connect.
+- The timer is global, survives client disconnect, resets to 14400000 (4 h) on reboot. The plugin sends it only when the sleep-timeout option is set, and then on every connect and wake (with the rest of the full-state push).
 - The panel pushes `_isSleeping=1` / `_isSleeping=0` to all clients.
 - `ping` does not keep it awake; joystick movement does. While asleep the joystick sends nothing.
 - A button press wakes it, but its `Down` may be lost.
@@ -184,7 +184,7 @@ Captured 2026-10-14: `Down`/`Up` with edges 1/2/4/8 on the four-way buttons (one
 
 ## What the plugin sends
 
-Implemented in `src/protocol.ts`, `src/connection.ts` and `src/instance.ts`:
+Implemented in `src/protocol.ts`, `src/connection.ts`, `src/instance.ts` and `src/settings.ts`:
 
 - Connect: `list`, `PanelTopology?`, then every control's LED (where it has an `out`) and display (where it has a `disp`). No topology within the timeout, unparseable topology, or a topology with no button or encoder fails the connection with a logged error and retries with backoff; there is no built-in layout.
 - LED: black or no colour → `HWC#n=0`. Otherwise `HWCc#n=<rgb>` then `HWC#n=4`. Pressed: dimmed (`5`) in the button colour, or `HWCc#n=130` (white) + `4` if the button has no colour.
@@ -195,7 +195,7 @@ Implemented in `src/protocol.ts`, `src/connection.ts` and `src/instance.ts`:
   - Companion passes typed escapes literally; like its renderer, `\n` and `\r` break the line and `\t` is a space.
 - Liveness: `ping` every second; any inbound line counts as alive; 5 s of silence drops the link. Reconnect backoff 1 s doubling to 30 s, reset by a received topology.
 - Writes: per-key (`HWC#n`, `HWCc#n`, `HWCt#n`) diffs and coalescing, up to 8 lines every 20 ms with a leading edge (a write to a queue idle for 20 ms goes out on the next timer turn rather than after a full 20 ms; anything more waits out the interval), held on `BSY` until `RDY`, a panel `ping`, or 1 s without either (the panel sent neither in the 2026-10-14 captures, so the hold must not depend on them). `ping`, `ack`, `list` and `PanelTopology?` bypass the queue.
-- No panel settings.
+- Panel settings only when opted in (`src/settings.ts`): `SleepTimer=<ms>` when the sleep timeout is set, `PanelBrightness=<l>,<l>` (`l = round(percent / 100 × 8)`) when the brightness link is on. Both go first in every full-state push (connect, wake) and when the setting or Companion's brightness changes. With defaults, neither is ever sent.
 
 Layout (`src/topology.ts`): buttons and encoders become controls `hwc/<id>`. The rules are generic over the topology; nothing depends on a model or an HWC id. In order:
 

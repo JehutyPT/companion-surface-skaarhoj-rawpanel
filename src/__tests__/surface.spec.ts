@@ -59,7 +59,8 @@ describe('layout from topology', () => {
 
 		validateSurfaceLayout(layout)
 		expect(Object.keys(layout.controls).sort()).toEqual(ptzExtremeLayoutHwcs.map((n) => `hwc/${n}`).sort())
-		expect(result.registerProps.transferVariables).toBeUndefined()
+		// Analog controls are transfer variables instead (analog.spec.ts)
+		expect(result.registerProps.transferVariables?.map((v) => v.id)).toEqual(['hwc_58', 'hwc_60', 'hwc_61', 'hwc_62'])
 	})
 
 	test('style presets follow what each control can show: LED colour, display text, both or neither', async () => {
@@ -520,12 +521,12 @@ describe('input', () => {
 		])
 	})
 
-	test('analog controls, unknown controls and unknown lines are ignored', async () => {
+	test('unknown controls and unknown lines are ignored; analog controls only set their variable', async () => {
 		const { context, send } = await openWithInput()
 
 		await send('HWC#11=Abs:500', 'HWC#12=Down', 'HWC#99=Down', 'nack', 'map=1:1', 'HWC#1=Sideways')
 
-		expect(context.calls).toEqual([])
+		expect(context.calls).toEqual([['variable', 'hwc_11', 500]])
 	})
 
 	test('keys held when the link drops are released', async () => {

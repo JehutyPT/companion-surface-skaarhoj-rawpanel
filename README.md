@@ -4,7 +4,7 @@ A [Bitfocus Companion](https://bitfocus.io/companion) surface plugin that makes 
 
 **Supported hardware:** built and tested on the SK_PTZEXTREMEV2, for which a preset page is planned. The layout comes from the panel's own topology report, so other Raw Panels may work, but they are untested. Issues and PRs for other panels are welcome.
 
-**Status: in development.** Buttons, encoders, LEDs and display text work, with the layout read from the panel. Analog controls and the panel-setting options are not done yet.
+**Status: in development.** Buttons, encoders, LEDs and display text work, with the layout read from the panel. Joysticks, rockers and faders send their values to Companion custom variables, and the panel's sleep timeout and brightness can optionally be set from Companion. The PTZ Extreme preset page is not done yet.
 
 See [HELP.md](./companion/HELP.md) and [LICENSE](./LICENSE).
 

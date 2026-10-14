@@ -24,6 +24,8 @@ export interface TopologyControl {
 	x: number
 	y: number
 	label: string
+	/** The type's `desc`, e.g. `4-Axis Joystick, Left-Right`; empty if none */
+	description: string
 	kind: ControlKind
 	/**
 	 * Identifies the control's topology type: its `type` id, plus its `typeOverride` when it has
@@ -56,8 +58,23 @@ export interface LayoutControl {
 	column: number
 }
 
+/** An analog control axis, sent to Companion as an input transfer variable. */
+export interface AnalogAxis {
+	hwc: number
+	/** Transfer variable id, e.g. `hwc_60` */
+	variableId: string
+	/** User-facing name, e.g. `4-Axis Joystick, Left-Right (HWC 60)` */
+	name: string
+	/** The custom variable name suggested to the user, e.g. `skaarhoj_lr` */
+	suggestedVariable: string
+	/** `Speed` (intensity: joystick, rocker, -500..500, rests at 0) or `Abs` (absolute: fader, T-bar, 0..1000) */
+	mode: 'Speed' | 'Abs'
+}
+
 export interface PanelLayout {
 	controls: LayoutControl[]
+	/** Analog axes, in HWC order; not part of the button layout */
+	axes: AnalogAxis[]
 	surfaceLayout: SurfaceSchemaLayoutDefinition
 	/** A string that is equal for two layouts exactly when Companion would see the same surface */
 	signature: string
@@ -70,6 +87,7 @@ export const NO_FEEDBACK_STYLE_PRESET = 'none'
 
 const BUTTON_CODES = new Set(['b', 'b2h', 'b2v', 'b4'])
 const ANALOG_CODES = new Set(['av', 'ah', 'ar', 'iv', 'ih', 'ir'])
+const INTENSITY_CODES = new Set(['iv', 'ih', 'ir'])
 
 interface RawTypeDef {
 	w?: number
@@ -160,6 +178,7 @@ export function parseTopology(json: string): Topology {
 			x: numberOr0(hwc.x),
 			y: numberOr0(hwc.y),
 			label: stringOrEmpty(hwc.txt),
+			description: stringOrEmpty(typeDef.desc),
 			kind: classify(input),
 			typeKey: override ? `${type}+${JSON.stringify(override)}` : String(type),
 			input,
@@ -319,7 +338,43 @@ export function buildLayout(topology: Topology): PanelLayout {
 		),
 	}
 
-	return { controls, surfaceLayout, signature: JSON.stringify(controls) }
+	const axes = buildAxes(topology)
+	return { controls, axes, surfaceLayout, signature: JSON.stringify({ controls, axes }) }
+}
+
+function slug(text: string): string {
+	return text
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '_')
+		.replace(/^_+|_+$/g, '')
+}
+
+/**
+ * One axis per analog control (first listed wins per HWC). The suggested custom variable name is
+ * `skaarhoj_<label>`, with `_<hwc>` added when the label is shared, or `skaarhoj_hwc_<hwc>` when
+ * there is no label.
+ */
+function buildAxes(topology: Topology): AnalogAxis[] {
+	const byHwc = new Map<number, TopologyControl>()
+	for (const control of topology.controls) {
+		if (control.kind === 'analog' && !byHwc.has(control.hwc)) byHwc.set(control.hwc, control)
+	}
+	const analog = [...byHwc.values()].sort((a, b) => a.hwc - b.hwc)
+	const labelCounts = new Map<string, number>()
+	for (const c of analog) labelCounts.set(slug(c.label), (labelCounts.get(slug(c.label)) ?? 0) + 1)
+
+	return analog.map((c) => {
+		const label = slug(c.label)
+		const suggestion = !label ? `hwc_${c.hwc}` : (labelCounts.get(label) ?? 0) > 1 ? `${label}_${c.hwc}` : label
+		const codes = c.input.split(',').map((code) => code.trim())
+		return {
+			hwc: c.hwc,
+			variableId: `hwc_${c.hwc}`,
+			name: `${c.description || c.label || 'Analog control'} (HWC ${c.hwc})`,
+			suggestedVariable: `skaarhoj_${suggestion}`,
+			mode: codes.some((code) => INTENSITY_CODES.has(code)) ? 'Speed' : 'Abs',
+		}
+	})
 }
 
 function stylePresetFor(control: LayoutControl): string | undefined {

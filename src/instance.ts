@@ -11,8 +11,10 @@ import {
 	type SurfaceDrawProps,
 	type SurfaceInstance,
 } from '@companion-surface/base'
+import { AnalogSender } from './analog.js'
 import type { PanelLink } from './link.js'
 import { ledCommands, textCommand, type PanelCommand, type PanelEvent } from './protocol.js'
+import { DEFAULT_PANEL_SETTINGS, parsePanelSettings, settingCommands, type PanelSettings } from './settings.js'
 import type { LayoutControl, PanelLayout } from './topology.js'
 
 interface ControlState {
@@ -34,13 +36,20 @@ export class RawPanelSurface implements SurfaceInstance {
 	readonly #state = new Map<string, ControlState>()
 	/** Pressed edges per HWC; plain (edge-less) presses use bit 1 */
 	readonly #held = new Map<number, number>()
+	readonly #analog: AnalogSender
+	#settings: PanelSettings = DEFAULT_PANEL_SETTINGS
+	/** Companion's latest brightness for this surface, 0-100; undefined until it sets one */
+	#brightness: number | undefined
 	#listening = false
 	#closed = false
 	#disconnectRequested = false
 
 	readonly #onInput = (event: PanelEvent): void => this.#handleInput(event)
 	readonly #onResync = (): void => this.#pushAll()
-	readonly #onOffline = (): void => this.#releaseAll()
+	readonly #onOffline = (): void => {
+		this.#releaseAll()
+		this.#analog.rest()
+	}
 	readonly #onDisconnect = (reason: string): void => {
 		// Companion closes the surface in its own time; ask once even if another reason follows.
 		if (this.#disconnectRequested) return
@@ -59,6 +68,11 @@ export class RawPanelSurface implements SurfaceInstance {
 			this.#byId.set(control.controlId, control)
 			this.#state.set(control.controlId, OFF)
 		}
+		this.#analog = new AnalogSender(
+			layout.axes,
+			(variableId, value) => this.#context.sendVariableValue(variableId, value),
+			() => this.#context.isLocked,
+		)
 	}
 
 	async init(): Promise<void> {
@@ -67,6 +81,8 @@ export class RawPanelSurface implements SurfaceInstance {
 		this.#listen(true)
 		// The panel blanked itself on connect; make our view of it explicit.
 		this.#pushAll()
+		// Joysticks and rockers start at rest
+		this.#analog.rest()
 	}
 
 	async close(): Promise<void> {
@@ -74,19 +90,25 @@ export class RawPanelSurface implements SurfaceInstance {
 		this.#closed = true
 		this.#listen(false)
 		this.#held.clear()
+		this.#analog.rest()
+		this.#analog.stop()
 		this.#link.detach(this)
 	}
 
-	async updateConfig(_config: Record<string, any>): Promise<void> {
-		// No surface config in this version
+	async updateConfig(config: Record<string, any>): Promise<void> {
+		this.#settings = parsePanelSettings(config)
+		// Diffed per command, so only a changed setting goes out
+		this.#link.write(settingCommands(this.#settings, this.#brightness))
 	}
 
 	async ready(): Promise<void> {
 		// Nothing to prepare
 	}
 
-	async setBrightness(_percent: number): Promise<void> {
-		// Not supported yet: brightness would be a panel setting (PanelBrightness=)
+	async setBrightness(percent: number): Promise<void> {
+		this.#brightness = percent
+		// Only when the user linked the panel's brightness to Companion's
+		if (this.#settings.linkBrightness) this.#link.write(settingCommands(this.#settings, percent))
 	}
 
 	async blank(): Promise<void> {
@@ -129,7 +151,8 @@ export class RawPanelSurface implements SurfaceInstance {
 	/** Send every control's state. `reset` re-sends even what the panel should already show. */
 	#pushAll(reset = true): void {
 		if (reset) this.#link.resetDiffs()
-		const commands: PanelCommand[] = []
+		// Opt-in panel settings first: the panel resets the sleep timer when it restarts
+		const commands: PanelCommand[] = settingCommands(this.#settings, this.#brightness)
 		for (const control of this.#byId.values()) {
 			commands.push(...this.#commandsFor(control, this.#state.get(control.controlId) ?? OFF))
 		}
@@ -148,6 +171,10 @@ export class RawPanelSurface implements SurfaceInstance {
 	#handleInput(event: PanelEvent): void {
 		if (!('hwc' in event)) {
 			if (event.type === 'unknown') this.#logger.debug(`Ignoring line: ${event.line.slice(0, 80)}`)
+			return
+		}
+		if (event.type === 'analog') {
+			this.#analog.input(event.hwc, event.value)
 			return
 		}
 		const control = this.#byHwc.get(event.hwc)
@@ -171,9 +198,6 @@ export class RawPanelSurface implements SurfaceInstance {
 				// Companion handles key presses while locked (pincode entry); rotation is ignored then.
 				if (this.#context.isLocked || event.delta === 0) break
 				this.#context.rotateById(control.controlId, event.delta)
-				break
-			case 'analog':
-				// Analog controls are not in the layout in this version
 				break
 		}
 	}

@@ -34,6 +34,23 @@ function captured(name: string): string[] {
 		.filter((l) => !l.startsWith('_'))
 }
 
+const keyCalls = (calls: ContextCall[]) => calls.filter((c) => c[0] !== 'variable')
+
+/** The last value sent to Companion for each analog variable. */
+function lastVariables(calls: ContextCall[]): Record<string, unknown> {
+	return Object.fromEntries(calls.filter((c) => c[0] === 'variable').map((c) => [c[1], c[2]]))
+}
+
+/** The last `Speed` value in `lines` for each HWC, as variable ids. */
+function lastSpeeds(lines: string[]): Record<string, number> {
+	const result: Record<string, number> = {}
+	for (const line of lines) {
+		const m = /^HWC#(\d+)=Speed:(-?\d+)$/.exec(line)
+		if (m) result[`hwc_${m[1]}`] = Number(m[2])
+	}
+	return result
+}
+
 async function replay(lines: string[]): Promise<ContextCall[]> {
 	harness = new Harness({ topology: ptzExtremeTopology })
 	await harness.start()
@@ -42,14 +59,15 @@ async function replay(lines: string[]): Promise<ContextCall[]> {
 	await waitFor(() => harness!.panel.commands.length > 0)
 
 	harness.panel.send(...lines)
-	await sleep(100)
+	await sleep(150)
 	return context.calls
 }
 
 /**
  * The expected Companion call for each event line, by the slice 1 rules: an edge or plain
  * Down/Up is a key down/up (no capture has two edges of one button held at once), `Enc` is a
- * signed rotate, `Press` a key press, and analog `Speed` is not a Companion call yet.
+ * signed rotate, `Press` a key press. Analog `Speed` sets a variable (checked separately: the replay
+ * arrives in one burst, so it is coalesced).
  */
 function expectedCalls(lines: string[]): ContextCall[] {
 	const calls: ContextCall[] = []
@@ -74,7 +92,10 @@ describe('replaying real panel sessions', () => {
 
 		const calls = await replay(lines)
 
-		expect(calls).toEqual(expectedCalls(lines))
+		expect(keyCalls(calls)).toEqual(expectedCalls(lines))
+		// The zoom rocker's last value reaches Companion (this capture ends mid-push, at -500)
+		expect(lastVariables(calls)).toEqual({ hwc_60: 0, hwc_61: 0, hwc_62: 0, ...lastSpeeds(lines) })
+		expect(lastVariables(calls).hwc_58).toBe(-500)
 		// Spot checks against the capture, independent of the mapping above
 		expect(count(calls, 'rotate', 'hwc/59')).toBe(93)
 		expect(count(calls, 'rotate', 'hwc/57')).toBe(27)
@@ -83,25 +104,28 @@ describe('replaying real panel sessions', () => {
 		expect(count(calls, 'keyDownUp', 'hwc/57')).toBe(2)
 		expect(count(calls, 'keyDown', 'hwc/13')).toBe(5)
 		expect(count(calls, 'keyUp', 'hwc/13')).toBe(5)
-		expect(calls.some((c) => c[1] === 'hwc/58')).toBe(false)
 		// Every line was understood: none logged as unknown
 		expect(logs.filter((l) => l.message.startsWith('Ignoring line'))).toEqual([])
 	})
 
-	test('joystick: axes are ignored, the top button and the A10-A12 four-way buttons are keys', async () => {
+	test('joystick: each axis ends on its last value, coalesced; the top button and A10-A12 are keys', async () => {
 		const lines = captured('ptz-extreme-capture-joystick.log')
 		expect(lines.filter((l) => /^HWC#6[012]=Speed:/.test(l))).toHaveLength(168)
 
 		const calls = await replay(lines)
 
-		expect(calls).toEqual(expectedCalls(lines))
-		expect(calls.slice(0, 2)).toEqual([
+		expect(keyCalls(calls)).toEqual(expectedCalls(lines))
+		// HWC 62 ends at -3, within the deadband of the 0 it started at, so Companion keeps 0
+		expect(lastSpeeds(lines)).toEqual({ hwc_60: 0, hwc_61: 0, hwc_62: -3 })
+		expect(lastVariables(calls)).toEqual({ hwc_58: 0, hwc_60: 0, hwc_61: 0, hwc_62: 0 })
+		// 168 axis events in one burst: coalesced to a few sends per axis
+		expect(calls.filter((c) => c[0] === 'variable').length).toBeLessThan(20)
+		expect(keyCalls(calls).slice(0, 2)).toEqual([
 			['keyDown', 'hwc/63'],
 			['keyUp', 'hwc/63'],
 		])
 		expect(count(calls, 'keyDown', 'hwc/63')).toBe(2)
 		expect(count(calls, 'keyUp', 'hwc/63')).toBe(2)
-		expect(calls.some((c) => ['hwc/60', 'hwc/61', 'hwc/62'].includes(c[1] as string))).toBe(false)
 		expect(logs.filter((l) => l.message.startsWith('Ignoring line'))).toEqual([])
 	})
 })

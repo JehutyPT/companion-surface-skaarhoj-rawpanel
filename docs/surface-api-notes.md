@@ -146,6 +146,23 @@ interface SurfaceInputVariable {
 - The surface settings show, per transfer variable, a dropdown of the user's existing custom variables, with no default. A plugin cannot create or preselect them, and page exports don't include custom variables. So tooltips and HELP.md suggest names (`skaarhoj_zoom`, `skaarhoj_joy_x`, …) for the user to create once.
 - Recommend "persist value" off on those custom variables; otherwise each change is a database write.
 
+What the plugin does (`src/analog.ts`, `buildAxes` in `src/topology.ts`):
+
+- Variable id `hwc_<n>`; name from the topology type's `desc`, else the HWC's `txt`, plus `(HWC n)` (e.g. `4-Axis Joystick, Left-Right (HWC 60)`). The description gives the raw range and suggests `skaarhoj_<txt>` (`skaarhoj_zoom`, `skaarhoj_lr`, `skaarhoj_ud`, `skaarhoj_rotate` on the PTZ Extreme), with `_<n>` added when two axes share a label and `skaarhoj_hwc_<n>` with no label.
+- Deadband 6 panel units; 0 and the ends of travel (|v| ≥ 500) always bypass it, so the return to centre is never swallowed. First change after 50 ms idle goes out at once; later ones within the window collapse into one trailing send of the latest value.
+- Intensity axes (`Speed`) send 0 when the surface opens, when the link drops and when the surface closes, so a camera never keeps moving on a stale value. Absolute axes (`Abs`) have no rest position and keep their value.
+- While Companion is locked, non-zero values are dropped but 0 still goes out (mirrors encoders, which are ignored while locked). Whether the host itself drops variable values while locked is unverified.
+- The axes are part of the layout signature: transfer variables are fixed at open, like the layout.
+
+## Panel settings (per-surface `configFields`)
+
+The sleep timeout and the brightness link are **surface** `configFields` (`registerProps.configFields`, delivered through `updateConfig`, called before `ready()` and on every edit), not remote connection fields. They don't affect the layout, and surface fields apply without reconnecting, whereas saving a remote connection field restarts the connection. They show in Companion under **Surfaces**, in the panel's surface settings.
+
+- **Panel sleep timeout** (`sleepTimer`, dropdown): default `panel` sends nothing. A choice in ms (0 = never) sends `SleepTimer=<ms>` at once, then with every full-state push (connect and wake), since the panel resets it to 4 h on reboot. A number field can't express "leave alone" (it needs a default and 0 already means never), hence the dropdown.
+- **Set panel brightness from Companion** (`linkBrightness`, checkbox, default off): when on, `setBrightness(percent)` sends `PanelBrightness=<l>,<l>` with `l = round(percent / 100 * 8)` (0 % is the panel's 0). Turning it on sends the last brightness Companion gave at once.
+- `registerProps.brightness` is fixed at open, so it is always `true`: Companion shows its brightness slider even when the link is off, and then the slider does nothing.
+- Going back to the defaults stops sending but does not restore the panel's previous values: the plugin never reads them.
+
 ## Loading a dev build into Companion
 
 1. `yarn install && yarn build` (or `yarn dev` to watch). Companion hot-reloads.
