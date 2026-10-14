@@ -21,7 +21,7 @@ The panel appears as a surface named after its model. Its button grid follows th
 - Button LEDs show the button colour. The panel has 64 colours, so colours are approximated. Black turns the LED off.
 - While a button is pressed in Companion, its LED dims, or lights white if the button has no colour.
 - Controls without an LED or display (on the PTZ Extreme: Iris, Focus and the joystick button) work as inputs and show no feedback.
-- Controls with a display show the button text: one line large, or the first two lines small (type `\n` for a line break). Displays show plain ASCII only, up to 24 characters per line, and long text is cut.
+- Controls with a display show the button text: one line large, or the first two lines small (type `\n` for a line break). Displays show plain ASCII only. At the default size one line fits about 11 characters on the 64×32 button displays and about 19 on the 112×32 knob displays; long text is cut.
 - Joysticks, rockers and faders are not used yet.
 
 ### Connection

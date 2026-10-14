@@ -90,7 +90,7 @@ Renderings:
 - `isLabel` 0/empty gives a solid title bar ("state"); 1 gives a thin underline ("label").
 - Empty value with format 0 hides the value (lib sets format 7).
 
-Display sizes on this panel [HW]: 64×32 on the buttons, 112×32 on the knobs. Captured 2026-10-14: on a 64×32 button display, one line at the default size shows about 11 characters (`ABCDEFGHIJK` of `ABCDEFGHIJKLMNOP`). Monochrome bitmaps exist (`HWCg#id=0/<last>,<w>x<h>:<b64>`, lines under ~250 chars) but are untested here.
+Display sizes on this panel [HW]: 64×32 on the buttons, 112×32 on the knobs. Captured 2026-10-14: on a 64×32 button display, one line at the default size shows about 11 characters (`ABCDEFGHIJK` of `ABCDEFGHIJKLMNOP`). On a 112×32 knob display, one line at the default size shows 19 characters (`ABCDEFGHIJKLMNOP123`). Monochrome bitmaps exist (`HWCg#id=0/<last>,<w>x<h>:<b64>`, lines under ~250 chars) but are untested here.
 
 ### Panel-wide (panel settings)
 
