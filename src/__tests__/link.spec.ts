@@ -225,7 +225,7 @@ describe('forwarding to the surface', () => {
 		expect(link.isOnline).toBe(false)
 	})
 
-	test('writes and diff resets go to the connection', () => {
+	test('writes go to the connection', () => {
 		const { connection, link } = startLink()
 		connection.goOnline(panel)
 
@@ -233,12 +233,37 @@ describe('forwarding to the surface', () => {
 			{ key: 'HWCc#1', line: 'HWCc#1=240' },
 			{ key: 'HWC#1', line: 'HWC#1=4' },
 		])
-		link.resetDiffs()
 
 		expect(connection.writes).toEqual([
 			['HWCc#1', 'HWCc#1=240'],
 			['HWC#1', 'HWC#1=4'],
 		])
+		expect(connection.resetDiffsCalls).toBe(0)
+	})
+
+	test('the connection forgets what it sent just before each resync, on wake and on a reconnect to the same panel and layout', () => {
+		const { connection, link, announced } = startLink()
+		const resetsAtResync: number[] = []
+		link.on('resync', () => resetsAtResync.push(connection.resetDiffsCalls))
+		connection.goOnline(panel)
+		link.attach({ surfaceId: announced[0].surfaceId })
+		const before = connection.resetDiffsCalls
+
+		connection.receive({ type: 'reply', key: 'isSleeping', value: '0' })
+		connection.goOffline()
+		connection.goOnline(panel)
+
+		expect(resetsAtResync).toEqual([before + 1, before + 2])
+		expect(connection.resetDiffsCalls).toBe(before + 2)
+	})
+
+	test('a surface that opens makes the connection forget what it sent, so its first push all goes out', () => {
+		const { connection, link, announced } = startLink()
+		connection.goOnline(panel)
+		expect(connection.resetDiffsCalls).toBe(0)
+
+		link.attach({ surfaceId: announced[0].surfaceId })
+
 		expect(connection.resetDiffsCalls).toBe(1)
 	})
 

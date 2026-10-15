@@ -1,5 +1,5 @@
 /**
- * One TCP link to a Raw Panel: line framing, the connect sequence (`list`, `PanelTopology?`),
+ * One TCP connection to a Raw Panel: line framing, the connect sequence (`list`, `PanelTopology?`),
  * ping liveness and reconnect with exponential backoff. Writes go through its `WriteQueue`, which
  * paces and coalesces them and honours `BSY`/`RDY`.
  */
@@ -17,7 +17,7 @@ export interface ConnectionTimings extends WriteQueueTimings {
 	topologyTimeoutMs: number
 	/** Send `ping` this often */
 	pingIntervalMs: number
-	/** Declare the link dead after this long with nothing received. Must cover the panel's stalls after connect and wake (~0.5 s). */
+	/** Declare the connection dead after this long with nothing received. Must cover the panel's stalls after connect and wake (~0.5 s). */
 	livenessTimeoutMs: number
 	/** First reconnect delay; doubles per failed attempt */
 	backoffInitialMs: number
@@ -25,7 +25,7 @@ export interface ConnectionTimings extends WriteQueueTimings {
 	backoffMaxMs: number
 }
 
-export const DEFAULT_TIMINGS: ConnectionTimings = {
+const DEFAULT_TIMINGS: ConnectionTimings = {
 	connectTimeoutMs: 3000,
 	topologyTimeoutMs: 10000,
 	pingIntervalMs: 1000,
@@ -50,9 +50,9 @@ export interface PanelIdentity {
 export interface PanelConnectionEvents {
 	/** Connected and topology received. Fired again after every reconnect. The panel has blanked itself: push everything. */
 	online: [identity: PanelIdentity]
-	/** Link lost after having been online. */
+	/** Connection lost after having been online. */
 	offline: [reason: string]
-	/** Any inbound line other than connection chatter (`ack`, `ping`, `BSY`, `RDY`, `list` replies, topology). */
+	/** Any inbound line other than connection chatter (`ack`, `ping`, `BSY`, `RDY`, `map=`, `list` replies, topology). */
 	event: [event: PanelEvent]
 }
 
@@ -176,6 +176,7 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 
 	#onLine(line: string): void {
 		const event = parseLine(line)
+		if (!event) return
 		switch (event.type) {
 			case 'ack':
 				return

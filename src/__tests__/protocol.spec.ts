@@ -13,7 +13,6 @@ describe('parsing panel lines', () => {
 		['RDY', { type: 'ready' }],
 		['_isSleeping=1', { type: 'reply', key: 'isSleeping', value: '1' }],
 		['_panelTopology_HWC={"a":"b=c"}', { type: 'reply', key: 'panelTopology_HWC', value: '{"a":"b=c"}' }],
-		['map=37:37', { type: 'map', from: 37, to: 37 }],
 		['HWC#1=Down', { type: 'button', hwc: 1, edge: undefined, down: true }],
 		['HWC#1=Up', { type: 'button', hwc: 1, edge: undefined, down: false }],
 		['HWC#6.8=Down', { type: 'button', hwc: 6, edge: 8, down: true }],
@@ -38,6 +37,10 @@ describe('parsing panel lines', () => {
 		'HWC#10.2=Press',
 	])('%s is unknown', (line) => {
 		expect(parseLine(line)).toEqual({ type: 'unknown', line })
+	})
+
+	test.each(['map=37:37', 'map=1:0'])('%s carries nothing for the plugin: no event, not unknown', (line) => {
+		expect(parseLine(line)).toBeUndefined()
 	})
 })
 

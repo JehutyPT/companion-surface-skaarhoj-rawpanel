@@ -10,6 +10,7 @@ import {
 	DEFAULT_ANALOG_INTERVAL_MS,
 	defaultAxisTuning,
 	fullScale,
+	rangeText,
 	type AnalogTuning,
 	type AxisTuning,
 } from './analog.js'
@@ -96,7 +97,7 @@ const panelSettingFields: SomeCompanionInputField[] = [
 /** A dead zone and a saturation field per analog axis in the topology. */
 function axisFields(axis: AnalogAxis): SomeCompanionInputField[] {
 	const full = fullScale(axis.mode)
-	const travel = axis.mode === 'Speed' ? '-500 to 500' : '0 to 1000'
+	const travel = rangeText(axis.mode)
 	const defaults = defaultAxisTuning(axis.mode)
 	return [
 		{
@@ -164,19 +165,14 @@ function parseSleepTimer(value: unknown): number | undefined {
 
 /**
  * The tuning from the surface config fields: `analogInterval`, and per axis `analogEnabled_<hwc>`
- * (on unless set to false), `analogDeadband_<hwc>` and `analogSaturation_<hwc>`. An axis without
- * its own dead zone takes the old single `analogDeadband` setting, so it carries over. A saturation
- * not above the dead zone is ignored.
+ * (on unless set to false), `analogDeadband_<hwc>` and `analogSaturation_<hwc>`. A saturation not
+ * above the dead zone is ignored.
  */
 function parseAnalogTuning(config: Record<string, unknown>, axes: readonly AnalogAxis[]): AnalogTuning {
 	const byHwc: Record<number, AxisTuning> = {}
 	for (const { hwc, mode } of axes) {
 		const fallback = defaultAxisTuning(mode)
-		const deadband = parseWholeNumber(
-			config[deadbandFieldId(hwc)] ?? config.analogDeadband,
-			fallback.deadband,
-			DEADBAND_RANGE,
-		)
+		const deadband = parseWholeNumber(config[deadbandFieldId(hwc)], fallback.deadband, DEADBAND_RANGE)
 		const saturation = parseWholeNumber(config[saturationFieldId(hwc)], fallback.saturation, saturationRange(mode))
 		byHwc[hwc] = {
 			enabled: config[enabledFieldId(hwc)] !== false,

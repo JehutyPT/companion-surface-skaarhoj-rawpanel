@@ -81,7 +81,7 @@ export class RawPanelSurface implements SurfaceInstance {
 		if (this.#closed) throw new Error('Surface already closed')
 		this.#link.attach(this)
 		this.#listen(true)
-		// The panel blanked itself on connect; make our view of it explicit.
+		// Attaching made the connection forget what it sent, so every control goes out.
 		this.#pushAll()
 	}
 
@@ -119,7 +119,7 @@ export class RawPanelSurface implements SurfaceInstance {
 
 	async blank(): Promise<void> {
 		for (const id of this.#state.keys()) this.#state.set(id, OFF)
-		this.#pushAll(false)
+		this.#pushAll()
 	}
 
 	async draw(_signal: AbortSignal, drawProps: SurfaceDrawProps): Promise<void> {
@@ -154,9 +154,8 @@ export class RawPanelSurface implements SurfaceInstance {
 		return commands
 	}
 
-	/** Send every control's state. `reset` re-sends even what the panel should already show. */
-	#pushAll(reset = true): void {
-		if (reset) this.#link.resetDiffs()
+	/** Send every control's state; the write queue drops lines the panel already shows. */
+	#pushAll(): void {
 		// Opt-in panel settings first: the panel resets the sleep timer when it restarts
 		const commands: PanelCommand[] = settingCommands(this.#settings, this.#brightness)
 		for (const control of this.#byId.values()) {

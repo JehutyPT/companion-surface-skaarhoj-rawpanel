@@ -3,7 +3,7 @@
  * Companion surface layout from their physical positions. Nothing here knows about a model or a
  * specific HWC id; everything comes from the report.
  */
-import type { SurfaceInputVariable, SurfaceSchemaLayoutDefinition } from '@companion-surface/base'
+import type { SurfaceSchemaLayoutDefinition } from '@companion-surface/base'
 import type { ControlMap } from './control-map.js'
 import type { AnalogMode } from './protocol.js'
 
@@ -62,7 +62,7 @@ export interface LayoutControl {
 	column: number
 }
 
-/** An analog control axis, sent to Companion as an input transfer variable. */
+/** An analog control axis, sent to Companion as an input transfer variable (see analog.ts). */
 export interface AnalogAxis {
 	hwc: number
 	/** Transfer variable id, e.g. `hwc_60` */
@@ -72,17 +72,6 @@ export interface AnalogAxis {
 	/** The custom variable name suggested to the user, e.g. `skaarhoj_lr` */
 	suggestedVariable: string
 	mode: AnalogMode
-}
-
-/** The Companion input transfer variable for an axis. */
-export function axisTransferVariable(axis: AnalogAxis): SurfaceInputVariable {
-	const range = axis.mode === 'Speed' ? '-500 to 500, 0 at rest' : '0 to 1000'
-	return {
-		id: axis.variableId,
-		type: 'input',
-		name: axis.name,
-		description: `Value ${range}, scaled linearly by this axis's dead zone and saturation settings. The plugin can't create or preselect a variable here: create a custom variable once (suggested name: ${axis.suggestedVariable}, with "persist value" off) and pick it.`,
-	}
 }
 
 export interface PanelLayout {
@@ -97,9 +86,9 @@ export interface PanelLayout {
 }
 
 /** Style presets by feedback: `default` is colour only (an LED, no display). */
-export const DISPLAY_STYLE_PRESET = 'display'
-export const TEXT_STYLE_PRESET = 'text'
-export const NO_FEEDBACK_STYLE_PRESET = 'none'
+const DISPLAY_STYLE_PRESET = 'display'
+const TEXT_STYLE_PRESET = 'text'
+const NO_FEEDBACK_STYLE_PRESET = 'none'
 
 const BUTTON_CODES = new Set(['b', 'b2h', 'b2v', 'b4'])
 const ANALOG_CODES = new Set(['av', 'ah', 'ar', 'iv', 'ih', 'ir'])

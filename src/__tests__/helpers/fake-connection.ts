@@ -4,7 +4,7 @@ import type { LinkConnection } from '../../link.js'
 import type { PanelEvent } from '../../protocol.js'
 import { parseTopology } from '../../topology.js'
 
-/** What the panel reports when the link comes online; `topology` is a fixture as the panel sends it. */
+/** What the panel reports when the connection comes online; `topology` is a fixture as the panel sends it. */
 export type FakeIdentity = Partial<Omit<PanelIdentity, 'topology'>> & { topology: unknown }
 
 /**
@@ -48,7 +48,7 @@ export class FakeConnection extends EventEmitter<PanelConnectionEvents> implemen
 		this.emit('online', reported)
 	}
 
-	/** The link was lost after having been online. */
+	/** The connection was lost after having been online. */
 	goOffline(reason = 'connection closed'): void {
 		this.isOnline = false
 		this.emit('offline', reason)

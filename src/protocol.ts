@@ -21,14 +21,18 @@ export type PanelEvent =
 	| { type: 'ping' }
 	| { type: 'busy' }
 	| { type: 'ready' }
-	| { type: 'map'; from: number; to: number }
 	| { type: 'unknown'; line: string }
 
 // [LIB] ^HWC#([0-9]+)(|.([0-9]+))=(Down|Up|Press|Abs|Speed|Enc)(|:([-0-9,]+))$
 const HWC_EVENT = /^HWC#(\d+)(?:\.(\d+))?=(Down|Up|Press|Abs|Speed|Enc)(?::(-?\d+))?$/
-const MAP = /^map=(\d+):(\d+)$/
+/** `map=<hwc>:<n>`, sent per input HWC on every connect; the plugin takes its controls from the topology instead. */
+const MAP = /^map=\d+:\d+$/
 
-export function parseLine(line: string): PanelEvent {
+/**
+ * The event a panel line carries, or undefined for a line that carries nothing for the plugin
+ * (`map=`), so it is neither an event nor unknown.
+ */
+export function parseLine(line: string): PanelEvent | undefined {
 	switch (line) {
 		case 'ack':
 			return { type: 'ack' }
@@ -46,8 +50,7 @@ export function parseLine(line: string): PanelEvent {
 		return { type: 'unknown', line }
 	}
 
-	const map = MAP.exec(line)
-	if (map) return { type: 'map', from: Number(map[1]), to: Number(map[2]) }
+	if (MAP.test(line)) return undefined
 
 	const m = HWC_EVENT.exec(line)
 	if (!m) return { type: 'unknown', line }
@@ -82,11 +85,11 @@ export interface PanelCommand {
 }
 
 /** LED state values (`HWC#n=`) */
-export const LED_OFF = 0
-export const LED_ON = 4
-export const LED_DIMMED = 5
+const LED_OFF = 0
+const LED_ON = 4
+const LED_DIMMED = 5
 /** `HWCc#n=` indexed white, used for pressed feedback on an unlit button */
-export const COLOR_WHITE = 128 + 2
+const COLOR_WHITE = 128 + 2
 
 function channel(hex: string): number {
 	const value = parseInt(hex, 16)
@@ -100,7 +103,7 @@ function parseHexColor(color: string | undefined): { r: number; g: number; b: nu
 }
 
 /** `HWCc#` value for an RGB colour: `192 + (r<<4 | g<<2 | b)`, 2 bits per channel. */
-export function quantiseColor(r: number, g: number, b: number): number {
+function quantiseColor(r: number, g: number, b: number): number {
 	return 192 + (((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6))
 }
 
@@ -123,9 +126,9 @@ export function ledCommands(hwc: number, color: string | undefined, pressed: boo
 }
 
 /** Longest `HWCt` command, whole line included. */
-export const MAX_TEXT_COMMAND_LENGTH = 63
+const MAX_TEXT_COMMAND_LENGTH = 63
 /** Longest title or text line on a display. */
-export const MAX_TEXT_LINE_LENGTH = 24
+const MAX_TEXT_LINE_LENGTH = 24
 
 function sanitiseTextLine(line: string): string {
 	// Printable ASCII only; `|` separates fields and cannot be escaped.

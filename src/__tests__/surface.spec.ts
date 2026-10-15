@@ -251,6 +251,15 @@ describe('input', () => {
 		expect(context.calls).toEqual([['variable', 'hwc_11', 497]])
 	})
 
+	test("the panel's map= lines reach neither Companion nor the log", async () => {
+		const { context, send } = await openWithInput()
+
+		await send('map=1:1', 'map=10:10', 'map=37:0', 'HWC#1=Down')
+
+		expect(context.calls).toEqual([['keyDown', 'hwc/1']])
+		expect(logs.filter((l) => l.message.includes('map='))).toEqual([])
+	})
+
 	test('keys held when the link drops are released', async () => {
 		const { context, send, panel } = await openWithInput()
 		await send('HWC#1=Down', 'HWC#6.4=Down')

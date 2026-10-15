@@ -2,9 +2,11 @@
  * Analog axes (joysticks, rockers, faders, T-bars) to Companion input transfer variables: the
  * panel's value rescaled linearly between each axis's dead zone and saturation, sent only on change
  * past the dead zone, at most once per interval per axis, with a trailing send so the final value
- * always arrives. The tuning (`AnalogTuning`) is read from the surface settings in settings.ts; the
- * defaults here are the sender's own fallback and the settings' defaults.
+ * always arrives. Also what each axis mode means to the user: its range text, its default tuning and
+ * its transfer variable declaration. The tuning (`AnalogTuning`) is read from the surface settings in
+ * settings.ts; the defaults here are the sender's own fallback and the settings' defaults.
  */
+import type { SurfaceInputVariable } from '@companion-surface/base'
 import type { AnalogAxis, AnalogMode } from './topology.js'
 
 export interface AxisTuning {
@@ -29,6 +31,23 @@ export interface AnalogTuning {
 /** Full travel from 0: intensity (`Speed`) axes run -500..500, absolute (`Abs`) ones 0..1000. */
 export function fullScale(mode: AnalogMode): number {
 	return mode === 'Speed' ? 500 : 1000
+}
+
+/** The panel's range for an axis mode, as shown to the user: `-500 to 500` or `0 to 1000`. */
+export function rangeText(mode: AnalogMode): string {
+	const full = fullScale(mode)
+	return mode === 'Speed' ? `-${full} to ${full}` : `0 to ${full}`
+}
+
+/** The Companion input transfer variable for an axis. */
+export function axisTransferVariable(axis: AnalogAxis): SurfaceInputVariable {
+	const range = axis.mode === 'Speed' ? `${rangeText(axis.mode)}, 0 at rest` : rangeText(axis.mode)
+	return {
+		id: axis.variableId,
+		type: 'input',
+		name: axis.name,
+		description: `Value ${range}, scaled linearly by this axis's dead zone and saturation settings. The plugin can't create or preselect a variable here: create a custom variable once (suggested name: ${axis.suggestedVariable}, with "persist value" off) and pick it.`,
+	}
 }
 
 /** The joystick jitters by about ±5 at rest; saturation at full travel is off. */

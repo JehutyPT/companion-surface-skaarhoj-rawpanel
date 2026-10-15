@@ -41,7 +41,7 @@ export interface LinkTimings {
 	rejectRetryMaxMs: number
 }
 
-export const DEFAULT_LINK_TIMINGS: LinkTimings = {
+const DEFAULT_LINK_TIMINGS: LinkTimings = {
 	rejectRetryMs: 1000,
 	rejectRetryMaxMs: 30000,
 }
@@ -55,7 +55,7 @@ export interface RawPanelDeviceInfo {
 export interface PanelLinkEvents {
 	/** An input event for the open surface */
 	input: [event: PanelEvent]
-	/** The panel blanked itself (reconnect or wake): push all state */
+	/** The panel blanked itself (reconnect or wake) and the connection has forgotten what it sent: push all state */
 	resync: []
 	/** The link went down; the surface stays open while it reconnects */
 	offline: []
@@ -110,7 +110,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		this.#connection.on('offline', () => this.emit('offline'))
 		this.#connection.on('event', (event) => {
 			if (event.type === 'reply' && event.key === 'isSleeping') {
-				if (event.value === '0') this.emit('resync')
+				if (event.value === '0') this.#resync()
 				return
 			}
 			this.emit('input', event)
@@ -149,9 +149,13 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		return !this.#stopped && info.deviceHandle === this.#deviceHandle && this.#layout !== undefined
 	}
 
-	/** Called by the surface instance when it opens. */
+	/**
+	 * Called by the surface instance when it opens. Forgets what was sent, so the new surface's
+	 * first push all goes out even if an earlier surface sent the same lines.
+	 */
 	attach(surface: PanelSurfaceHandle): void {
 		this.#surface = surface
+		this.#connection.resetDiffs()
 		this.#resetRejections()
 	}
 
@@ -190,11 +194,6 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		}
 	}
 
-	/** Forget what was sent, so the next writes all go out (the panel blanked itself). */
-	resetDiffs(): void {
-		this.#connection.resetDiffs()
-	}
-
 	write(commands: PanelCommand[]): void {
 		for (const command of commands) this.#connection.write(command.key, command.line)
 	}
@@ -224,7 +223,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 			this.#resetRejections()
 			this.#doAnnounce()
 		} else if (samePanelAndLayout) {
-			this.emit('resync')
+			this.#resync()
 		} else if (this.#surface) {
 			// Companion still holds the old surface until it closes it; announce the new one after that.
 			this.#logger.info(`Panel or layout changed on reconnect; replacing surface ${surfaceId}`)
@@ -234,6 +233,12 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 		} else {
 			this.#doAnnounce()
 		}
+	}
+
+	/** The panel blanked itself: forget what was sent, so the surface's full push all goes out. */
+	#resync(): void {
+		this.#connection.resetDiffs()
+		this.emit('resync')
 	}
 
 	#doAnnounce(): void {

@@ -410,15 +410,8 @@ describe('reading the surface settings', () => {
 			{ enabled: true, deadband: 3, saturation: 480 },
 		],
 		[
-			'the old single dead zone',
-			{ analogDeadband: 20 },
-			defaultPanel,
-			50,
-			{ enabled: true, deadband: 20, saturation: 500 },
-		],
-		[
-			'an empty dead zone of its own, over the old single one',
-			{ analogDeadband_60: '', analogDeadband: 20 },
+			'an empty dead zone',
+			{ analogDeadband_60: '' },
 			defaultPanel,
 			50,
 			{ enabled: true, deadband: 6, saturation: 500 },
@@ -464,13 +457,5 @@ describe('reading the surface settings', () => {
 			axes: { 5: { enabled: true, deadband: 6, saturation: 1000 } },
 		})
 		expect(parseSurfaceSettings({ analogSaturation_5: 2000 }, [fader]).analog.axes[5].saturation).toBe(1000)
-	})
-
-	test('the old single dead zone still applies to every axis that has no dead zone of its own', () => {
-		const upDown = { ...joystick, hwc: 61, variableId: 'hwc_61' }
-		const { axes } = parseSurfaceSettings({ analogDeadband: 0, analogDeadband_61: 50 }, [joystick, upDown]).analog
-
-		expect(axes[60].deadband).toBe(0)
-		expect(axes[61].deadband).toBe(50)
 	})
 })
