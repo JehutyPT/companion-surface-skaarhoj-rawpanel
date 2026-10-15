@@ -142,11 +142,11 @@ function sanitiseTextLine(line: string): string {
 /**
  * Companion keeps escapes typed into button text (`\n`, `\r`, `\t`) as literal two-character
  * sequences and only converts them when it renders (RenderThread.js). Do the same: they become a
- * line break or a space. A real `\r\n` needs nothing here: it splits on `\n` and the sanitiser
- * drops the `\r`.
+ * line break or a space; an escaped `\r\n` is one line break. A real `\r\n` needs nothing here: it
+ * splits on `\n` and the sanitiser drops the `\r`.
  */
 function unescapeCompanionText(text: string): string {
-	return text.replaceAll('\\n', '\n').replaceAll('\\r', '\n').replaceAll('\\t', ' ')
+	return text.replaceAll('\\r\\n', '\n').replaceAll('\\n', '\n').replaceAll('\\r', '\n').replaceAll('\\t', ' ')
 }
 
 /**

@@ -98,6 +98,10 @@ describe('text commands', () => {
 		expect(line('Real\r\nbreak')).toBe('HWCt#10=1|11|||1|Real|break')
 	})
 
+	test('an escaped CRLF in text is one line break', () => {
+		expect(line('Line one\\r\\nLine two')).toBe('HWCt#10=1|11|||1|Line one|Line two')
+	})
+
 	test('text is cleaned of pipes and non-ASCII', () => {
 		expect(line('Câm | 1 ✓', 6)).toBe('HWCt#6=1|10||Cm  1')
 	})
