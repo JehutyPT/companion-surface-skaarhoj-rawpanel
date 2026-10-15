@@ -61,6 +61,23 @@ Dead zone and saturation are in panel steps, measured from 0. A value within the
 - **saturation** (default 500 for joysticks and rockers, 1000 for faders, which is off; 100 up to that): if an axis only reaches, say, -496 one way, set its saturation to 495 and both ends reach ±500.
 - **Analog send interval (ms)** (default 50, 10 to 1000): the shortest time between two values sent for one axis. Faster moves are combined, always ending on the latest value. 50 ms is about 20 times a second, which matches how often Companion reacts to variable changes; 10 is the fastest.
 
+### PTZ Extreme preset page
+
+A ready-made page for the SK_PTZEXTREMEV2, to check that every control works. Each button and knob is labelled with its name and HWC number, presses and knob turns count into custom variables, and S5-S8 show the zoom rocker and joystick values. It uses only Companion's internal actions, so it needs no connections.
+
+Download [ptz-extreme.companionconfig](https://github.com/JehutyPT/companion-surface-skaarhoj-rawpanel/blob/main/presets/ptz-extreme.companionconfig) (use **Download raw file** on GitHub). The surface settings link to it too.
+
+1. Create the custom variables first (**Variables** → **Custom Variables**). A page export doesn't include custom variables, and without them the buttons show nothing useful. Turn **persist value** off on all of them. Start each at `0`, except `sk_last`, which starts empty.
+   - `sk_presses`: counts button presses.
+   - `sk_last`: the last control pressed.
+   - `sk_enc1`, `sk_enc2`, `sk_enc3`, `sk_enc4`, `sk_enc5`, `sk_enc6`, `sk_enc7`, `sk_enc8`: Knob A-H (E1-E8), turned left and right. Pushing a knob resets it to 0.
+   - `sk_iris`, `sk_focus`: the Iris and Focus encoders.
+   - `skaarhoj_zoom`, `skaarhoj_lr`, `skaarhoj_ud`, `skaarhoj_rotate`: the zoom rocker and joystick (see above).
+2. In **Import / Export**, import the file. Choose the page to import it into, then import. The page uses rows 0-3 and columns 0-16; if your button grid is smaller, Companion grows it.
+3. In **Surfaces**, put the panel on that page, and in the panel's settings pick `skaarhoj_zoom`, `skaarhoj_lr`, `skaarhoj_ud` and `skaarhoj_rotate` for the four analog axes.
+
+The page assumes the automatic layout. If you moved controls with **Control positions**, the labels follow the grid, not the controls.
+
 ### Connection
 
 - If the connection drops, the plugin reconnects on its own and restores every LED and display. It does the same when the panel wakes from sleep.

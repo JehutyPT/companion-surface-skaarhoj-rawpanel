@@ -1,7 +1,7 @@
 /**
- * Per-surface settings: the panel's own settings, all opt-in (with the defaults the plugin never
- * sends `SleepTimer=` or `PanelBrightness=`), and the analog tuning (send interval, and per axis a
- * dead zone and saturation).
+ * Per-surface settings: a link to the PTZ Extreme preset page, the panel's own settings, all opt-in
+ * (with the defaults the plugin never sends `SleepTimer=` or `PanelBrightness=`), and the analog
+ * tuning (send interval, and per axis a dead zone and saturation).
  */
 import type { SomeCompanionInputField } from '@companion-surface/base'
 import {
@@ -22,6 +22,21 @@ import type { AnalogAxis } from './topology.js'
 const SLEEP_TIMER_UNCHANGED = 'panel'
 
 const MINUTE = 60_000
+
+/** The PTZ Extreme preset page, a single-page Companion export, in the repo */
+export const PRESET_PAGE_PATH = 'presets/ptz-extreme.companionconfig'
+export const PRESET_PAGE_URL = `https://github.com/JehutyPT/companion-surface-skaarhoj-rawpanel/blob/main/${PRESET_PAGE_PATH}`
+
+/** Companion 5.1 renders a static-text value as Markdown, so the link is clickable. */
+const presetPageField: SomeCompanionInputField = {
+	id: 'presetPage',
+	type: 'static-text',
+	label: 'PTZ Extreme preset page',
+	value: [
+		`A starter page that labels every control on the SK_PTZEXTREMEV2 and shows the joystick and zoom values: [download it from GitHub](${PRESET_PAGE_URL}) (Download raw file).`,
+		"To use it: create the custom variables listed in this plugin's help, import the file on the Import / Export page into a page of your choice, put the panel on that page, and pick the joystick and zoom variables in these settings.",
+	].join('\n\n'),
+}
 
 const panelSettingFields: SomeCompanionInputField[] = [
 	{
@@ -97,7 +112,7 @@ function axisFields(axis: AnalogAxis): SomeCompanionInputField[] {
 
 /** The surface config fields for a panel with these analog axes. */
 export function surfaceConfigFields(axes: readonly AnalogAxis[]): SomeCompanionInputField[] {
-	return [...panelSettingFields, ...axes.flatMap(axisFields)]
+	return [presetPageField, ...panelSettingFields, ...axes.flatMap(axisFields)]
 }
 
 export interface PanelSettings {

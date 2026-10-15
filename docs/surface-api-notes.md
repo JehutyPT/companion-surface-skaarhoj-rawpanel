@@ -166,6 +166,15 @@ The sleep timeout, the brightness link and the analog tuning are **surface** `co
 - A disabled axis sends nothing: turning it off drops its queued value and sends 0 once if it is a `Speed` axis Companion holds at non-zero (an `Abs` axis keeps its value), then its events are ignored, and `rest()` (ready, link drop, close) skips it. Its transfer variable stays declared, since transfer variables are fixed at open. With every axis disabled, `AnalogSender.input` returns at once and starts no timers. The panel keeps sending the events: Raw Panel ASCII v1 has no command to stop input reporting (see `docs/raw-panel-protocol.md`), so "disabled" is plugin-side only.
 - `registerProps.brightness` is fixed at open, so it is always `true`: Companion shows its brightness slider even when the link is off, and then the slider does nothing.
 - Going back to the defaults stops sending but does not restore the panel's previous values: the plugin never reads them.
+- **PTZ Extreme preset page** (`presetPage`, static-text, first): Markdown with a link to `presets/ptz-extreme.companionconfig` on GitHub `main` (the blob page, so the user downloads the raw file there) and the import steps in short. The repo URL is also in package.json, manifest.json and HELP.md; a rename touches all four. Shown for every panel; the text names the model, since the plugin has no per-model code.
+
+### The preset page file
+
+`presets/ptz-extreme.companionconfig` is a byte-for-byte Companion 5.1 page export, kept outside `companion/` so `companion-surface-build` (which copies all of `companion/` into the package) doesn't ship it; the setting and HELP.md link to GitHub instead. To refresh it, export the page with secrets excluded and as plain JSON so diffs stay readable:
+
+`GET <companion>/int/export/page/<page>?includeSecrets=false&format=json` (the web UI's own export route; `/int` needs no API key but only answers local or trusted hosts. `includeSecrets` defaults to true, `format` takes `json`, `json-gz` or `yaml`.)
+
+Check that `instances` is `{}` and every `connectionId` is `internal`; `src/__tests__/preset.spec.ts` checks that, the page name, and that every custom variable it uses is listed in HELP.md. Importing a page grows Companion's grid to the page's `gridSize` (default grid is 4 × 8).
 
 ## Loading a dev build into Companion
 

@@ -2,9 +2,9 @@
 
 A [Bitfocus Companion](https://bitfocus.io/companion) surface plugin that makes a SKAARHOJ Raw Panel a Companion surface over the Raw Panel TCP protocol: buttons, encoders, LEDs and display text, with analog controls (joysticks, rockers, faders) as input variables. Needs Companion 5.1+.
 
-**Supported hardware:** built and tested on the SK_PTZEXTREMEV2, for which a preset page is planned. The layout comes from the panel's own topology report, so other Raw Panels may work, but they are untested. Issues and PRs for other panels are welcome.
+**Supported hardware:** built and tested on the SK_PTZEXTREMEV2, with a starter preset page in [presets/ptz-extreme.companionconfig](./presets/ptz-extreme.companionconfig) (import steps and the custom variables it needs are in [HELP.md](./companion/HELP.md#ptz-extreme-preset-page)). The layout comes from the panel's own topology report, so other Raw Panels may work, but they are untested. Issues and PRs for other panels are welcome.
 
-**Status: in development.** Buttons, encoders, LEDs and display text work, with the layout read from the panel. Joysticks, rockers and faders send their values to Companion custom variables, and the panel's sleep timeout and brightness can optionally be set from Companion. The PTZ Extreme preset page is not done yet.
+**Status: in development.** Buttons, encoders, LEDs and display text work, with the layout read from the panel. Joysticks, rockers and faders send their values to Companion custom variables, and the panel's sleep timeout and brightness can optionally be set from Companion. A PTZ Extreme preset page ships in `presets/`.
 
 See [HELP.md](./companion/HELP.md) and [LICENSE](./LICENSE).
 
