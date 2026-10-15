@@ -12,7 +12,8 @@ All source is in `src/`; tests are in `src/__tests__/`.
 | `remote.ts` | Companion's remote connection entries: builds one connection and one link per link key, ref-counted, and holds announcements until `init`. | `RawPanelPluginRemoteService` |
 | `connection-settings.ts` | The connection settings: address, port and control positions. Rejects an invalid entry. | `connectionConfigFields`, `CONNECTION_CONFIG_MATCH_EXPRESSION`, `parseConnectionSettings` |
 | `link.ts` | The link: one panel at one `address:port`. Builds the layout when the connection comes online and decides when to announce, resync or replace the surface. | `PanelLink`, `LinkConnection`, `LinkTimings` |
-| `connection.ts` | The connection: TCP, line framing, the connect sequence, liveness, reconnect, and the paced write queue that honours `BSY`/`RDY`. | `PanelConnection`, `ConnectionTimings` |
+| `connection.ts` | The connection: TCP, line framing, the connect sequence, liveness and reconnect. Feeds writes, `BSY`/`RDY` and resets to its write queue. | `PanelConnection`, `ConnectionTimings` |
+| `write-queue.ts` | The write queue: pending and last-sent lines per key, coalescing, dropping unchanged lines, bursts paced per interval, the `BSY` hold with its timeout, and the reset for a new link. Hands each burst to a send callback; knows nothing of the socket. | `WriteQueue`, `WriteQueueTimings` |
 | `topology.ts` | Parsing the topology, the control kind of each HWC, and the layout and analog axes built from it. | `parseTopology`, `buildLayout`, `ControlKind`, `PanelLayout`, `AnalogAxis` |
 | `control-map.ts` | Parsing control positions into a `ControlMap`. Knows nothing about the panel. | `parseControlMap`, `formatControlMap` |
 | `instance.ts` | The surface: turns draws into panel commands and panel input into Companion key, rotate and variable events. Holds the desired state of every control for resync. | `RawPanelSurface` |
@@ -36,7 +37,7 @@ The link talks to its connection only through `LinkConnection`. `PanelConnection
 1. Companion calls `RawPanelSurface.draw` with a control's colour, text and pressed state.
 2. The surface stores that as the control's desired state and encodes it with `ledCommands` and `textCommand`.
 3. `PanelLink.write` hands each `PanelCommand` to the connection, keyed by what it sets (for example `HWCc#12`, an LED colour).
-4. `PanelConnection` sends only changes, paced and coalesced per key: see [What the plugin sends](raw-panel-protocol.md#what-the-plugin-sends).
+4. `PanelConnection` passes each line to its `WriteQueue`, which sends only changes, paced and coalesced per key: see [What the plugin sends](raw-panel-protocol.md#what-the-plugin-sends).
 
 ## Lifecycle
 

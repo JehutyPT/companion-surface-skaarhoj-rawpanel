@@ -48,7 +48,11 @@ One panel at one `address:port` (`PanelLink`): it drives its connection and deci
 _Avoid_: session
 
 **Connection**:
-The TCP connection to the panel (`PanelConnection`): framing, connect sequence, liveness, reconnect and the paced write queue. Not the Companion "remote connection" entry, which is a connection settings record.
+The TCP connection to the panel (`PanelConnection`): framing, connect sequence, liveness and reconnect. It sends commands through its write queue. Not the Companion "remote connection" entry, which is a connection settings record.
+
+**Write queue**:
+The connection's queue of commands to the panel (`WriteQueue`): one pending line per key, the latest wins; a line equal to the last one sent for its key is dropped; at most one burst per write interval; held on `BSY` until `RDY`, a panel `ping` or a timeout. Emptied and forgotten on every connect and reconnect.
+_Avoid_: send buffer, outbox
 
 **Resync**:
 Pushing the full desired state of every LED and display after the panel has blanked (connect, reconnect, wake).

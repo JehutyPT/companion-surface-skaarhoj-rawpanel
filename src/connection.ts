@@ -1,15 +1,16 @@
 /**
  * One TCP link to a Raw Panel: line framing, the connect sequence (`list`, `PanelTopology?`),
- * ping liveness, reconnect with exponential backoff, and a paced, coalescing write queue that
- * flushes on the leading edge and honours `BSY`/`RDY`.
+ * ping liveness and reconnect with exponential backoff. Writes go through its `WriteQueue`, which
+ * paces and coalesces them and honours `BSY`/`RDY`.
  */
 import { createModuleLogger, type ModuleLogger } from '@companion-surface/base'
 import EventEmitter from 'node:events'
 import net from 'node:net'
 import { parseLine, type PanelEvent } from './protocol.js'
 import { parseTopology, type Topology } from './topology.js'
+import { WriteQueue, type WriteQueueTimings } from './write-queue.js'
 
-export interface ConnectionTimings {
+export interface ConnectionTimings extends WriteQueueTimings {
 	/** Give up on a TCP connect after this long */
 	connectTimeoutMs: number
 	/** Fail the connection if no usable `_panelTopology_HWC` arrives this long after connecting */
@@ -22,12 +23,6 @@ export interface ConnectionTimings {
 	backoffInitialMs: number
 	/** Reconnect delay cap */
 	backoffMaxMs: number
-	/** Time between write bursts */
-	writeIntervalMs: number
-	/** Most lines sent per burst */
-	writeBurst: number
-	/** Resume writing this long after `BSY` if neither `RDY` nor a panel `ping` has arrived */
-	busyTimeoutMs: number
 }
 
 export const DEFAULT_TIMINGS: ConnectionTimings = {
@@ -88,14 +83,8 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 	#topologyTimer: NodeJS.Timeout | undefined
 	#pingTimer: NodeJS.Timeout | undefined
 	#reconnectTimer: NodeJS.Timeout | undefined
-	#writeTimer: NodeJS.Timeout | undefined
-	#busyTimer: NodeJS.Timeout | undefined
 
-	#busy = false
-	/** When the last burst went out (monotonic `performance.now()`); `-Infinity` until the first one on this link. */
-	#lastFlushAt = -Infinity
-	readonly #pending = new Map<string, string>()
-	readonly #lastSent = new Map<string, string>()
+	readonly #queue: WriteQueue
 
 	constructor(host: string, port: number, timings: Partial<ConnectionTimings> = {}) {
 		super()
@@ -104,6 +93,7 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		this.#timings = { ...DEFAULT_TIMINGS, ...timings }
 		this.#backoffMs = this.#timings.backoffInitialMs
 		this.#logger = createModuleLogger(`Connection/${host}:${port}`)
+		this.#queue = new WriteQueue((lines) => this.#rawWrite(lines), this.#timings, this.#logger)
 	}
 
 	get isOnline(): boolean {
@@ -131,28 +121,18 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 	 */
 	write(key: string, line: string): void {
 		if (!this.#online) return
-		if (this.#lastSent.get(key) === line) {
-			this.#pending.delete(key)
-			return
-		}
-		// Re-insert so the queue keeps the order the commands were last written in (colour before state).
-		this.#pending.delete(key)
-		this.#pending.set(key, line)
-		this.#scheduleFlush()
+		this.#queue.write(key, line)
 	}
 
 	/** Forget what was sent, so the next writes go out even if unchanged (the panel blanked itself). */
 	resetDiffs(): void {
-		this.#lastSent.clear()
+		this.#queue.resetDiffs()
 	}
 
 	#connect(): void {
 		this.#identity = unknownIdentity()
 		this.#buffer = ''
-		this.#setBusy(false)
-		this.#pending.clear()
-		this.#lastSent.clear()
-		this.#lastFlushAt = -Infinity
+		this.#queue.reset()
 
 		const socket = net.createConnection({ host: this.host, port: this.port })
 		this.#socket = socket
@@ -201,13 +181,13 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 				return
 			case 'ping':
 				this.#rawWrite(['ack'])
-				this.#setBusy(false)
+				this.#queue.setBusy(false)
 				return
 			case 'busy':
-				this.#setBusy(true)
+				this.#queue.setBusy(true)
 				return
 			case 'ready':
-				this.#setBusy(false)
+				this.#queue.setBusy(false)
 				return
 			case 'reply':
 				if (event.key === 'panelTopology_HWC') {
@@ -255,63 +235,11 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		socket.write(lines.map((l) => l + '\n').join(''), 'latin1')
 	}
 
-	/**
-	 * Hold or resume writes. A hold ends on `RDY`, a panel `ping`, or after `busyTimeoutMs`, so the
-	 * queue cannot freeze if the panel sends neither.
-	 */
-	#setBusy(busy: boolean): void {
-		clearTimeout(this.#busyTimer)
-		this.#busyTimer = undefined
-		this.#busy = busy
-		if (busy) {
-			this.#busyTimer = setTimeout(() => {
-				this.#logger.debug(`Still busy after ${this.#timings.busyTimeoutMs} ms with no RDY; resuming writes`)
-				this.#setBusy(false)
-			}, this.#timings.busyTimeoutMs)
-		} else {
-			this.#scheduleFlush()
-		}
-	}
-
-	/**
-	 * Leading edge: if no burst went out within the last `writeIntervalMs`, flush on the next timer
-	 * turn (so writes made in the same tick, such as colour then state, share one burst). Otherwise
-	 * wait out the rest of the interval: at most one burst per `writeIntervalMs`.
-	 */
-	#scheduleFlush(): void {
-		if (this.#writeTimer || this.#pending.size === 0 || this.#busy || !this.#online) return
-		const delay = Math.max(0, this.#lastFlushAt + this.#timings.writeIntervalMs - performance.now())
-		this.#writeTimer = setTimeout(() => {
-			this.#writeTimer = undefined
-			this.#flush()
-		}, delay)
-	}
-
-	#flush(): void {
-		if (this.#busy || !this.#online) return
-		const lines: string[] = []
-		for (const [key, line] of this.#pending) {
-			if (lines.length >= this.#timings.writeBurst) break
-			this.#pending.delete(key)
-			this.#lastSent.set(key, line)
-			lines.push(line)
-		}
-		if (lines.length) {
-			this.#lastFlushAt = performance.now()
-			this.#rawWrite(lines)
-		}
-		this.#scheduleFlush()
-	}
-
 	#teardown(): void {
 		clearTimeout(this.#connectTimer)
 		clearTimeout(this.#topologyTimer)
 		clearInterval(this.#pingTimer)
-		clearTimeout(this.#writeTimer)
-		this.#writeTimer = undefined
-		clearTimeout(this.#busyTimer)
-		this.#busyTimer = undefined
-		this.#pending.clear()
+		this.#queue.reset()
 		const socket = this.#socket
 		this.#socket = undefined
 		if (socket) {

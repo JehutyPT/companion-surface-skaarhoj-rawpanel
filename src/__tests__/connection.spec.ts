@@ -368,26 +368,6 @@ describe('flow control', () => {
 		expect(harness.panel.commands.filter((l) => l.startsWith('HWCc#1='))).toEqual(['HWCc#1=195'])
 	})
 
-	test('stops holding writes when the panel stays busy past the busy timeout', async () => {
-		harness = new Harness({ topology: smallTopology }, { ...fastTimings, busyTimeoutMs: 150 })
-		await harness.start()
-		await harness.connect()
-		const { result } = await harness.open(await harness.waitForAnnouncements())
-		await waitFor(() => harness!.panel.commands.includes('HWC#10=0'))
-		harness.panel.clearReceived()
-
-		// The real panel sent neither RDY nor ping of its own in captures
-		harness.panel.send('BSY')
-		await sleep(30)
-		const drawnAt = Date.now()
-		await result.surface.draw(new AbortController().signal, { controlId: 'hwc/1', color: '#ff0000', pressed: false })
-		await sleep(60)
-		expect(harness.panel.commands).toEqual([])
-
-		await waitFor(() => harness!.panel.commands.includes('HWC#1=4'), 2000, 'the held write')
-		expect(Date.now() - drawnAt).toBeGreaterThanOrEqual(100)
-	})
-
 	test('sends nothing for a draw that does not change what the panel shows', async () => {
 		harness = new Harness({ topology: smallTopology })
 		await harness.start()

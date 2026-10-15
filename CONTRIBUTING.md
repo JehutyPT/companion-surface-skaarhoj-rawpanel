@@ -44,7 +44,7 @@ To try a dev build in Companion, see [Loading a dev build into Companion](docs/s
 Tests use [Vitest](https://vitest.dev/) and live in `src/__tests__/`. Each module is tested through its own interface:
 
 - **The whole plugin** (surface, analog, settings, connection settings, control positions, connection, and `replay.spec.ts`, which replays captured panel input): through `Harness` in `helpers/harness.ts`, which runs the real plugin against `FakeRawPanel` (`helpers/fake-panel.ts`), a fake panel on a local TCP port. `connectAndOpen` connects, opens the surface the way Companion does and waits for the resync on connect; `settle` waits for the panel's commands to go quiet. `FakeSurfaceContext` (`helpers/fake-context.ts`) records what the plugin sends to Companion.
-- **The connection's write pacing**: `PanelConnection` directly against `FakeRawPanel`.
+- **The write queue's pacing** (bursts, coalescing, dropping unchanged lines, `BSY`/`RDY` and the busy timeout): `WriteQueue` directly with fake timers, no socket (`write-queue.spec.ts`). `write-pacing.spec.ts` checks the connection's writes end to end against `FakeRawPanel`.
 - **The link**: `PanelLink` with `FakeConnection` (`helpers/fake-connection.ts`), an in-memory connection, so no TCP.
 - **The layout**: `layoutOf` (`helpers/layout.ts`) builds and validates the layout for a topology fixture.
 - **Parsing and encoding**: `protocol.ts`, `parseTopology` and the analog sender directly.
@@ -58,7 +58,7 @@ Other helpers:
 When a test depends on time:
 
 - Wait on a condition with `waitFor`, `waitForQuiet` or `settle`, not a fixed `sleep`, so the test passes on a slow machine too. Keep `sleep` for checking that something does _not_ happen.
-- Where the timing itself is under test (the analog sender's send interval, the link's retry backoff), use Vitest's fake timers, as `analog-sender.spec.ts` and `link.spec.ts` do.
+- Where the timing itself is under test (the analog sender's send interval, the link's retry backoff, the write queue's pacing), use Vitest's fake timers, as `analog-sender.spec.ts`, `link.spec.ts` and `write-queue.spec.ts` do.
 
 ### Adding a panel's topology
 
