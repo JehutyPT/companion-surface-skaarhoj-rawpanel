@@ -69,6 +69,19 @@ describe('connecting to a panel', () => {
 		expect(harness.announced).toEqual([])
 	}, 10_000)
 
+	test('a line longer than 4 MiB fails the connection even when its newline arrives with the byte that takes it over', async () => {
+		harness = new Harness({ topology: smallTopology })
+		await harness.connectAndOpen()
+
+		harness.panel.sendRaw('x'.repeat(4 * 1024 * 1024))
+		harness.panel.sendRaw('x\n')
+		await waitFor(() => harness!.panel.connectionCount >= 2, 4000, 'a reconnect')
+
+		expect(logs.some((l) => /line longer than/.test(l.message))).toBe(true)
+		// Not parsed: the surface would log it as an unknown line
+		expect(logs.filter((l) => l.message.startsWith('Ignoring line'))).toEqual([])
+	}, 10_000)
+
 	test('holds announcements made before init until init resolves', async () => {
 		harness = new Harness({ topology: smallTopology })
 		await harness.panel.listen()

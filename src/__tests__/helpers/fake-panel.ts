@@ -103,6 +103,13 @@ export class FakeRawPanel {
 		}
 	}
 
+	/** Write `data` to every open client as is, with no newline added: for lines split across writes. */
+	sendRaw(data: string): void {
+		for (const client of this.#clients) {
+			if (!client.socket.destroyed) client.socket.write(data)
+		}
+	}
+
 	/** Drop every client connection, as if the panel rebooted or the cable was pulled. */
 	dropClients(): void {
 		for (const client of this.#clients) client.socket.destroy()

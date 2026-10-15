@@ -165,6 +165,11 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		this.#buffer += chunk
 		let index: number
 		while ((index = this.#buffer.indexOf('\n')) >= 0) {
+			// A line completed in the same chunk that takes it over the limit
+			if (index > MAX_LINE_LENGTH) {
+				this.#fail(`line longer than ${MAX_LINE_LENGTH} bytes`)
+				return
+			}
 			let line = this.#buffer.slice(0, index)
 			this.#buffer = this.#buffer.slice(index + 1)
 			if (line.endsWith('\r')) line = line.slice(0, -1)
