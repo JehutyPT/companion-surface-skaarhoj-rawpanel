@@ -11,10 +11,10 @@ import {
 	type SurfaceDrawProps,
 	type SurfaceInstance,
 } from '@companion-surface/base'
-import { AnalogSender, parseAnalogTuning } from './analog.js'
+import { AnalogSender } from './analog.js'
 import type { PanelLink } from './link.js'
 import { ledCommands, textCommand, type PanelCommand, type PanelEvent } from './protocol.js'
-import { DEFAULT_PANEL_SETTINGS, parsePanelSettings, settingCommands, type PanelSettings } from './settings.js'
+import { DEFAULT_PANEL_SETTINGS, parseSurfaceSettings, settingCommands, type PanelSettings } from './settings.js'
 import type { AnalogAxis, LayoutControl, PanelLayout } from './topology.js'
 
 interface ControlState {
@@ -97,8 +97,9 @@ export class RawPanelSurface implements SurfaceInstance {
 
 	async updateConfig(config: Record<string, any>): Promise<void> {
 		if (this.#closed) return
-		this.#settings = parsePanelSettings(config)
-		this.#analog.configure(parseAnalogTuning(config, this.#axes))
+		const { panel, analog } = parseSurfaceSettings(config, this.#axes)
+		this.#settings = panel
+		this.#analog.configure(analog)
 		// Diffed per command, so only a changed setting goes out
 		this.#link.write(settingCommands(this.#settings, this.#brightness))
 	}

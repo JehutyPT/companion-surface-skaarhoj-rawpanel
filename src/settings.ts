@@ -1,22 +1,38 @@
 /**
  * Per-surface settings: a link to the PTZ Extreme preset page, the panel's own settings, all opt-in
  * (with the defaults the plugin never sends `SleepTimer=` or `PanelBrightness=`), and the analog
- * tuning (send interval, and per axis a dead zone and saturation).
+ * tuning (send interval, and per axis a dead zone and saturation). Owns every surface config field
+ * (id, label, tooltip, default, range) and reading a config back into typed settings
+ * (`parseSurfaceSettings`).
  */
 import type { SomeCompanionInputField } from '@companion-surface/base'
 import {
-	ANALOG_INTERVAL_RANGE,
-	DEADBAND_RANGE,
 	DEFAULT_ANALOG_INTERVAL_MS,
-	deadbandFieldId,
 	defaultAxisTuning,
-	enabledFieldId,
 	fullScale,
-	saturationFieldId,
-	saturationRange,
+	type AnalogTuning,
+	type AxisTuning,
 } from './analog.js'
 import type { PanelCommand } from './protocol.js'
-import type { AnalogAxis } from './topology.js'
+import type { AnalogAxis, AnalogMode } from './topology.js'
+
+interface Range {
+	min: number
+	max: number
+}
+
+/** Accepted values; Companion's number field `min`/`max` are only a UI hint. */
+const ANALOG_INTERVAL_RANGE: Readonly<Range> = { min: 10, max: 1000 }
+const DEADBAND_RANGE: Readonly<Range> = { min: 0, max: 100 }
+/** Saturation starts at 100 so it can't be set to swallow most of the travel by mistake. */
+function saturationRange(mode: AnalogMode): Range {
+	return { min: 100, max: fullScale(mode) }
+}
+
+/** Surface config field ids for an axis's tuning */
+const deadbandFieldId = (hwc: number): string => `analogDeadband_${hwc}`
+const saturationFieldId = (hwc: number): string => `analogSaturation_${hwc}`
+const enabledFieldId = (hwc: number): string => `analogEnabled_${hwc}`
 
 /** Dropdown value meaning "leave the panel's sleep timer alone" */
 const SLEEP_TIMER_UNCHANGED = 'panel'
@@ -121,9 +137,20 @@ export interface PanelSettings {
 	linkBrightness: boolean
 }
 
+/** Everything the surface reads from its config fields */
+export interface SurfaceSettings {
+	panel: PanelSettings
+	analog: AnalogTuning
+}
+
+/** The panel settings and the analog tuning from the surface config fields, for a panel with these axes. */
+export function parseSurfaceSettings(config: Record<string, unknown>, axes: readonly AnalogAxis[]): SurfaceSettings {
+	return { panel: parsePanelSettings(config), analog: parseAnalogTuning(config, axes) }
+}
+
 export const DEFAULT_PANEL_SETTINGS: PanelSettings = { sleepTimerMs: undefined, linkBrightness: false }
 
-export function parsePanelSettings(config: Record<string, unknown>): PanelSettings {
+function parsePanelSettings(config: Record<string, unknown>): PanelSettings {
 	return { sleepTimerMs: parseSleepTimer(config.sleepTimer), linkBrightness: config.linkBrightness === true }
 }
 
@@ -133,6 +160,43 @@ function parseSleepTimer(value: unknown): number | undefined {
 	if (value === SLEEP_TIMER_UNCHANGED || value === '') return undefined
 	const ms = Number(value)
 	return Number.isInteger(ms) && ms >= 0 ? ms : undefined
+}
+
+/**
+ * The tuning from the surface config fields: `analogInterval`, and per axis `analogEnabled_<hwc>`
+ * (on unless set to false), `analogDeadband_<hwc>` and `analogSaturation_<hwc>`. An axis without
+ * its own dead zone takes the old single `analogDeadband` setting, so it carries over. A saturation
+ * not above the dead zone is ignored.
+ */
+function parseAnalogTuning(config: Record<string, unknown>, axes: readonly AnalogAxis[]): AnalogTuning {
+	const byHwc: Record<number, AxisTuning> = {}
+	for (const { hwc, mode } of axes) {
+		const fallback = defaultAxisTuning(mode)
+		const deadband = parseWholeNumber(
+			config[deadbandFieldId(hwc)] ?? config.analogDeadband,
+			fallback.deadband,
+			DEADBAND_RANGE,
+		)
+		const saturation = parseWholeNumber(config[saturationFieldId(hwc)], fallback.saturation, saturationRange(mode))
+		byHwc[hwc] = {
+			enabled: config[enabledFieldId(hwc)] !== false,
+			deadband,
+			saturation: saturation > deadband ? saturation : fallback.saturation,
+		}
+	}
+	return {
+		intervalMs: parseWholeNumber(config.analogInterval, DEFAULT_ANALOG_INTERVAL_MS, ANALOG_INTERVAL_RANGE),
+		axes: byHwc,
+	}
+}
+
+/** A whole number clamped to the range; the default for anything missing or not a number. */
+function parseWholeNumber(value: unknown, fallback: number, range: Range): number {
+	if (typeof value === 'string' && value.trim() === '') return fallback
+	if (typeof value !== 'number' && typeof value !== 'string') return fallback
+	const n = Number(value)
+	if (!Number.isFinite(n)) return fallback
+	return Math.max(range.min, Math.min(range.max, Math.round(n)))
 }
 
 /** `SleepTimer=<ms>`; the panel echoes `_sleepTimer=<ms>`. */

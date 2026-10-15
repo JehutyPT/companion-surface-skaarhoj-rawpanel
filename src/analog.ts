@@ -2,7 +2,8 @@
  * Analog axes (joysticks, rockers, faders, T-bars) to Companion input transfer variables: the
  * panel's value rescaled linearly between each axis's dead zone and saturation, sent only on change
  * past the dead zone, at most once per interval per axis, with a trailing send so the final value
- * always arrives. All are user settings (`AnalogTuning`).
+ * always arrives. The tuning (`AnalogTuning`) is read from the surface settings in settings.ts; the
+ * defaults here are the sender's own fallback and the settings' defaults.
  */
 import type { AnalogAxis, AnalogMode } from './topology.js'
 
@@ -37,60 +38,6 @@ export function defaultAxisTuning(mode: AnalogMode): AxisTuning {
 
 /** Companion's variable-trigger throttle is about 20 Hz. */
 export const DEFAULT_ANALOG_INTERVAL_MS = 50
-
-export interface Range {
-	min: number
-	max: number
-}
-
-/** Accepted values; Companion's number field `min`/`max` are only a UI hint. */
-export const ANALOG_INTERVAL_RANGE: Readonly<Range> = { min: 10, max: 1000 }
-export const DEADBAND_RANGE: Readonly<Range> = { min: 0, max: 100 }
-/** Saturation starts at 100 so it can't be set to swallow most of the travel by mistake. */
-export function saturationRange(mode: AnalogMode): Range {
-	return { min: 100, max: fullScale(mode) }
-}
-
-/** Surface config field ids for an axis's tuning */
-export const deadbandFieldId = (hwc: number): string => `analogDeadband_${hwc}`
-export const saturationFieldId = (hwc: number): string => `analogSaturation_${hwc}`
-export const enabledFieldId = (hwc: number): string => `analogEnabled_${hwc}`
-
-/**
- * The tuning from the surface config fields: `analogInterval`, and per axis `analogEnabled_<hwc>`
- * (on unless set to false), `analogDeadband_<hwc>` and `analogSaturation_<hwc>`. An axis without
- * its own dead zone takes the old single `analogDeadband` setting, so it carries over. A saturation not above the dead zone is ignored.
- */
-export function parseAnalogTuning(config: Record<string, unknown>, axes: readonly AnalogAxis[]): AnalogTuning {
-	const byHwc: Record<number, AxisTuning> = {}
-	for (const { hwc, mode } of axes) {
-		const fallback = defaultAxisTuning(mode)
-		const deadband = parseWholeNumber(
-			config[deadbandFieldId(hwc)] ?? config.analogDeadband,
-			fallback.deadband,
-			DEADBAND_RANGE,
-		)
-		const saturation = parseWholeNumber(config[saturationFieldId(hwc)], fallback.saturation, saturationRange(mode))
-		byHwc[hwc] = {
-			enabled: config[enabledFieldId(hwc)] !== false,
-			deadband,
-			saturation: saturation > deadband ? saturation : fallback.saturation,
-		}
-	}
-	return {
-		intervalMs: parseWholeNumber(config.analogInterval, DEFAULT_ANALOG_INTERVAL_MS, ANALOG_INTERVAL_RANGE),
-		axes: byHwc,
-	}
-}
-
-/** A whole number clamped to the range; the default for anything missing or not a number. */
-function parseWholeNumber(value: unknown, fallback: number, range: Range): number {
-	if (typeof value === 'string' && value.trim() === '') return fallback
-	if (typeof value !== 'number' && typeof value !== 'string') return fallback
-	const n = Number(value)
-	if (!Number.isFinite(n)) return fallback
-	return Math.max(range.min, Math.min(range.max, Math.round(n)))
-}
 
 /**
  * Linear rescale, measured from 0: within the dead zone reads 0, at or past saturation reads full
