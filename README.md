@@ -24,6 +24,7 @@ See [HELP.md](./companion/HELP.md) and [LICENSE](./LICENSE).
 ## Docs
 
 - [AGENTS.md](./AGENTS.md): scope, rules, versions and conventions.
+- [docs/architecture.md](./docs/architecture.md): which module owns what, and where to make common changes.
 - [docs/raw-panel-protocol.md](./docs/raw-panel-protocol.md): the Raw Panel protocol.
 - [docs/surface-api-notes.md](./docs/surface-api-notes.md): the Companion surface API (`@companion-surface/base` 1.4).
 - Spec, decisions, slices and backlog: [JehutyPT/companion-surface-skaarhoj-rawpanel#1](https://github.com/JehutyPT/companion-surface-skaarhoj-rawpanel/issues/1).

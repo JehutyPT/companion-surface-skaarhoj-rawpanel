@@ -8,6 +8,7 @@ Spec, decisions, slices and backlog: [JehutyPT/companion-surface-skaarhoj-rawpan
 
 ## Reference
 
+- **Module map** (which module owns what, e.g. surface settings in `settings.ts`, connection settings in `connection-settings.ts`; where to change what): [docs/architecture.md](docs/architecture.md).
 - **Protocol** (commands, input events, topology, sleep, flow control, the PTZ Extreme HWC table): [docs/raw-panel-protocol.md](docs/raw-panel-protocol.md). Measured panel behaviour lives in [PTZJoystickControl `docs/skaarhoj-integration.md`](https://github.com/JehutyPT/PTZJoystickControl/blob/main/docs/skaarhoj-integration.md).
 - **Surface API** (version compatibility, remote flow, layout, draw props, transfer variables, dev loading): [docs/surface-api-notes.md](docs/surface-api-notes.md).
 - Upstream: bitfocus/companion-surface-api (tag `companion-surface-base-v1.4.1`), bitfocus/companion-surface-loupedeck (scaffold), bitfocus/companion-surface-elgato-stream-deck `src/remote.ts` (network pattern), SKAARHOJ/rawpanel-lib (protocol, has its own CLAUDE.md).
