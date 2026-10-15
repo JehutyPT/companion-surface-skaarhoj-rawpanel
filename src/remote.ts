@@ -8,17 +8,12 @@ import {
 } from '@companion-surface/base'
 import EventEmitter from 'node:events'
 import { PanelConnection, type ConnectionTimings } from './connection.js'
-import { formatControlMap, parseControlMap } from './control-map.js'
+import {
+	CONNECTION_CONFIG_MATCH_EXPRESSION,
+	connectionConfigFields,
+	parseConnectionSettings,
+} from './connection-settings.js'
 import { PanelLink, type LinkTimings, type RawPanelDeviceInfo } from './link.js'
-
-export const DEFAULT_TCP_PORT = 9923
-
-export interface RawPanelConnectionConfig {
-	address: string
-	port: number
-	/** Custom control positions, `<hwc>=<row>/<column>, ...` (see `control-map.ts`) */
-	controlMap?: string
-}
 
 /**
  * Companion's remote connections. Several connection entries with the same `address:port` and
@@ -49,33 +44,9 @@ export class RawPanelPluginRemoteService
 		this.#linkTimings = linkTimings
 	}
 
-	readonly configFields: SomeCompanionInputField[] = [
-		{
-			id: 'address',
-			type: 'textinput',
-			label: 'IP Address',
-			default: '',
-		},
-		{
-			id: 'port',
-			type: 'number',
-			label: 'Port',
-			default: DEFAULT_TCP_PORT,
-			min: 1,
-			max: 65535,
-		},
-		{
-			id: 'controlMap',
-			type: 'textinput',
-			label: 'Control positions',
-			default: '',
-			tooltip:
-				'Optional. Move controls on the Companion grid: <HWC>=<row>/<column>, separated by commas, e.g. 37=1/5, 38=1/6. Rows and columns start at 0 (top left). Unlisted controls keep their automatic position. Saving reconnects the panel.',
-		},
-	]
+	readonly configFields: SomeCompanionInputField[] = connectionConfigFields()
 
-	readonly checkConfigMatchesExpression: string | null =
-		'$(objA:address) == $(objB:address) && $(objA:port) == $(objB:port)'
+	readonly checkConfigMatchesExpression: string | null = CONNECTION_CONFIG_MATCH_EXPRESSION
 
 	async init(): Promise<void> {
 		this.#initialised = true
@@ -95,24 +66,20 @@ export class RawPanelPluginRemoteService
 
 		const invalidIds: string[] = []
 		for (const info of connectionInfos) {
-			const config = info.config as Partial<RawPanelConnectionConfig>
-			const address = typeof config.address === 'string' ? config.address.trim() : ''
-			const port = Number(config.port ?? DEFAULT_TCP_PORT)
-			if (!address || !Number.isInteger(port) || port < 1 || port > 65535) {
+			const settings = parseConnectionSettings(info.config)
+			if (!settings.valid) {
 				invalidIds.push(info.connectionId)
 				continue
 			}
 
-			const { map, warnings } = parseControlMap(config.controlMap)
-			const mapKey = formatControlMap(map)
-			const key = mapKey ? `${address}:${port}|${mapKey}` : `${address}:${port}`
+			const { address, port, controlMap, linkKey, warnings } = settings
 			const oldKey = this.#activeConnections.get(info.connectionId)
-			if (oldKey === key) continue
+			if (oldKey === linkKey) continue
 			if (oldKey !== undefined) this.#release(oldKey)
 			for (const warning of warnings) this.#logger.warn(warning)
 
-			this.#activeConnections.set(info.connectionId, key)
-			const entry = this.#links.get(key)
+			this.#activeConnections.set(info.connectionId, linkKey)
+			const entry = this.#links.get(linkKey)
 			if (entry) {
 				entry.refs++
 			} else {
@@ -122,10 +89,10 @@ export class RawPanelPluginRemoteService
 					address,
 					port,
 					(surface) => this.#announce(surface),
-					map,
+					controlMap,
 					this.#linkTimings,
 				)
-				this.#links.set(key, { link, refs: 1 })
+				this.#links.set(linkKey, { link, refs: 1 })
 				link.start()
 			}
 		}

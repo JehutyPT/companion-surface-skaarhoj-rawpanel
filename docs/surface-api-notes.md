@@ -29,6 +29,7 @@ Companion only loads plugins whose base version is at most its own (`shared-lib/
 ## Remote (network) flow
 
 1. Companion calls `remote.startConnections([{ connectionId, config }])`. It calls it again with the same `connectionId` when config is edited.
+   Here `src/connection-settings.ts` owns the connection `configFields` (address, port, control positions) and `checkConfigMatchesExpression`, and reads each connection's config through `parseConnectionSettings`: valid connection settings (trimmed address, port defaulting to 9923 and rejected outside 1–65535, control map, link key, control-position warnings) or a rejection, which stops whatever link the connection held. `src/remote.ts` only ref-counts links per link key and queues announcements until `init`.
 2. The plugin connects, then emits `surfacesConnected([{ surfaceId, deviceHandle, description, pluginInfo }])`.
 3. The host may call `rejectSurface(info)` if declined or the id is already open. This plugin then announces the surface again with a fresh `deviceHandle` after a backoff (1 s doubling, at most five times in a row; then not until the panel reconnects), so a connection removed and re-added before Companion closed the old surface comes back once it has. Rejections of a stale `deviceHandle` are ignored.
 4. Otherwise it calls `openSurface(...)`, then `surface.init()`.
