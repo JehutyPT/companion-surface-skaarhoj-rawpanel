@@ -7,6 +7,7 @@ import { validateSurfaceLayout, type LoggingSink } from '@companion-surface/base
 import { Harness } from './helpers/harness.js'
 import { sleep } from './helpers/fake-panel.js'
 import { smallTopology } from './fixtures/topologies.js'
+import { cellsOf, layoutOf } from './helpers/layout.js'
 import { formatControlMap, parseControlMap } from '../control-map.js'
 import { createRawPanelPlugin } from '../main.js'
 
@@ -27,9 +28,15 @@ afterEach(async () => {
 
 const warnings = () => logs.filter((l) => l.level === 'warn').map((l) => l.message)
 
+/** Lay out smallTopology with `controlMap`; returns the layout as `hwc: [row, column]` and its notes. */
+function layoutWithMap(controlMap: string) {
+	const layout = layoutOf(smallTopology, parseControlMap(controlMap).map)
+	return { grid: cellsOf(layout), notes: layout.mapNotes }
+}
+
 /** Connect with `controlMap`, open the surface and return its layout as `hwc: [row, column]`. */
-async function openWithMap(controlMap: string, topology: unknown = smallTopology) {
-	harness = new Harness({ topology })
+async function openWithMap(controlMap: string) {
+	harness = new Harness({ topology: smallTopology })
 	await harness.start()
 	await harness.connect('conn1', { controlMap })
 	const { result } = await harness.open(await harness.waitForAnnouncements())
@@ -101,35 +108,50 @@ describe('applying the control map', () => {
 		expect(field).toMatchObject({ type: 'textinput', default: '' })
 	})
 
-	test('an empty map leaves the automatic layout unchanged', async () => {
-		expect(await openWithMap('')).toEqual(AUTOMATIC)
+	test('an empty map leaves the automatic layout unchanged', () => {
+		expect(layoutWithMap('')).toEqual({ grid: AUTOMATIC, notes: [] })
 	})
 
-	test('listed controls move to their row and column; the rest keep their automatic position', async () => {
-		expect(await openWithMap('10=2/0, 6=1/5')).toEqual({ ...AUTOMATIC, 10: [2, 0], 6: [1, 5] })
+	test('listed controls move to their row and column; the rest keep their automatic position', () => {
+		expect(layoutWithMap('10=2/0, 6=1/5').grid).toEqual({ ...AUTOMATIC, 10: [2, 0], 6: [1, 5] })
 	})
 
-	test('an automatic control on a mapped cell moves right, pushing the controls after it along', async () => {
+	test('an automatic control on a mapped cell moves right, pushing the controls after it along', () => {
 		// B5 takes B1's cell: B1, B2, B3 and Enc each move one column right
-		const grid = await openWithMap('5=0/0')
+		const { grid, notes } = layoutWithMap('5=0/0')
 		expect(grid).toEqual({ ...AUTOMATIC, 5: [0, 0], 1: [0, 1], 2: [0, 2], 3: [0, 3], 10: [0, 4] })
-		expect(warnings().some((w) => /HWC 1/.test(w) && /0\/1/.test(w))).toBe(true)
+		expect(notes.some((w) => /HWC 1/.test(w) && /0\/1/.test(w))).toBe(true)
 	})
 
-	test('a gap stops the push: controls past a free cell stay put', async () => {
+	test('a gap stops the push: controls past a free cell stay put', () => {
 		// B2 leaves row 0; B5 takes B1's cell, so B1 moves into B2's old cell and B3 and Enc stay
-		expect(await openWithMap('5=0/0, 2=2/0')).toEqual({ ...AUTOMATIC, 5: [0, 0], 2: [2, 0], 1: [0, 1] })
+		expect(layoutWithMap('5=0/0, 2=2/0').grid).toEqual({ ...AUTOMATIC, 5: [0, 0], 2: [2, 0], 1: [0, 1] })
 	})
 
-	test('two entries for one cell: the first wins, the later one is ignored with a warning', async () => {
-		expect(await openWithMap('1=3/3, 2=3/3')).toEqual({ ...AUTOMATIC, 1: [3, 3] })
-		expect(warnings().some((w) => /HWC 2/.test(w))).toBe(true)
+	test('two entries for one cell: the first wins, the later one is ignored with a warning', () => {
+		const { grid, notes } = layoutWithMap('1=3/3, 2=3/3')
+		expect(grid).toEqual({ ...AUTOMATIC, 1: [3, 3] })
+		expect(notes.some((w) => /HWC 2/.test(w))).toBe(true)
 	})
 
-	test('entries for analog, input-less, unknown or absent controls are ignored with a warning', async () => {
+	test('entries for analog, input-less, unknown or absent controls are ignored with a warning', () => {
 		// 11 is a fader (a transfer variable), 12 an unknown type, 20 a label, 99 not on the panel
-		expect(await openWithMap('11=3/0, 12=3/1, 20=3/2, 99=3/3')).toEqual(AUTOMATIC)
-		for (const hwc of [11, 12, 20, 99]) expect(warnings().some((w) => w.includes(`HWC ${hwc}`))).toBe(true)
+		const { grid, notes } = layoutWithMap('11=3/0, 12=3/1, 20=3/2, 99=3/3')
+		expect(grid).toEqual(AUTOMATIC)
+		for (const hwc of [11, 12, 20, 99]) expect(notes.some((w) => w.includes(`HWC ${hwc}`))).toBe(true)
+	})
+
+	test('control positions from the connection settings shape the surface, and what they moved or ignored is logged as a warning', async () => {
+		expect(await openWithMap('5=0/0, 99=3/3')).toEqual({
+			...AUTOMATIC,
+			5: [0, 0],
+			1: [0, 1],
+			2: [0, 2],
+			3: [0, 3],
+			10: [0, 4],
+		})
+		expect(warnings().some((w) => /HWC 1/.test(w) && /0\/1/.test(w))).toBe(true)
+		expect(warnings().some((w) => w.includes('HWC 99'))).toBe(true)
 	})
 })
 

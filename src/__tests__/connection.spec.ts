@@ -61,6 +61,19 @@ describe('connecting to a panel', () => {
 		expect(harness.panel.connectionCount).toBe(1)
 	})
 
+	test('a line longer than 4 MiB with no newline yet fails the connection, which then reconnects', async () => {
+		// The svgbase line comes before the topology; past the limit, the connection gives up on it
+		const svgbase = 'x'.repeat(5 * 1024 * 1024)
+		harness = new Harness({ topology: smallTopology, svgbase }, { ...fastTimings, topologyTimeoutMs: 5000 })
+		await harness.start()
+		await harness.connect()
+
+		await waitFor(() => harness!.panel.connectionCount >= 2, 4000, 'a reconnect')
+
+		expect(logs.some((l) => /line longer than/.test(l.message))).toBe(true)
+		expect(harness.announced).toEqual([])
+	}, 10_000)
+
 	test('holds announcements made before init until init resolves', async () => {
 		harness = new Harness({ topology: smallTopology })
 		await harness.panel.listen()
