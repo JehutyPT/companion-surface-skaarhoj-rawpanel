@@ -1,13 +1,13 @@
 /**
  * Analog controls (joysticks, rockers, faders, T-bars) as Companion input transfer variables.
  */
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { LoggingSink, OpenSurfaceResult } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
 import { sleep, waitFor } from './helpers/fake-panel.js'
 import { FakeSurfaceContext, type ContextCall } from './helpers/fake-context.js'
 import { ptzExtremeTopology } from './fixtures/topologies.js'
-import { AnalogSender, parseAnalogTuning } from '../analog.js'
+import { parseAnalogTuning } from '../analog.js'
 
 let harness: Harness | undefined
 
@@ -104,19 +104,9 @@ describe('analog transfer variables', () => {
 	})
 })
 
+// The wiring between the surface and the sender, end to end; the analog rules are in analog-sender.spec.ts
 describe('analog values', () => {
-	test('intensity axes start at rest: each sends 0 when the surface opens', async () => {
-		const { context } = await openSurface()
-
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_58', 0],
-			['variable', 'hwc_60', 0],
-			['variable', 'hwc_61', 0],
-			['variable', 'hwc_62', 0],
-		])
-	})
-
-	test('the rest values wait for ready(): Companion drops variable values before the surface is registered', async () => {
+	test('intensity axes are put at rest on ready(), not init(): Companion drops variable values before the surface is registered', async () => {
 		harness = new Harness({ topology: ptzExtremeTopology })
 		await harness.start()
 		await harness.connect()
@@ -130,127 +120,12 @@ describe('analog values', () => {
 
 		await result.surface.ready()
 
-		expect(variables(context.calls).map((c) => c[1])).toEqual(['hwc_58', 'hwc_60', 'hwc_61', 'hwc_62'])
-	})
-
-	test('a move sends its value at once; with the default dead zone the ends stay at ±500', async () => {
-		const { context, panel } = await openSurface()
-		// Past the send interval since the rest values on ready, so nothing is held back
-		await sleep(60)
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:-487', 'HWC#58=Speed:500')
-		await waitFor(() => variables(context.calls).length >= 2, 2000, 'both axis values')
-
 		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_60', -487],
-			['variable', 'hwc_58', 500],
-		])
-	})
-
-	test('absolute (fader) values run 0 to 1000', async () => {
-		const { context, panel } = await openSurface({
-			HWc: [
-				{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
-				{ id: 5, x: 300, y: 100, txt: 'Fader', type: 2 },
-			],
-			typeIndex: { '1': { w: 100, in: 'b', out: 'rgb' }, '2': { w: 100, in: 'av' } },
-		})
-		// A fader has no rest position, so nothing is sent until it moves
-		expect(variables(context.calls)).toEqual([])
-
-		panel.send('HWC#5=Abs:1000')
-		await waitFor(() => variables(context.calls).length >= 1, 2000, 'the fader value')
-
-		expect(variables(context.calls)).toEqual([['variable', 'hwc_5', 1000]])
-	})
-
-	test('a fast burst is coalesced per axis to one send per 50 ms, always ending on the final value', async () => {
-		const { context, panel } = await openSurface()
-		await sleep(60)
-		context.calls.length = 0
-
-		for (let v = 10; v <= 400; v += 10) panel.send(`HWC#61=Speed:${v}`)
-		panel.send('HWC#61=Speed:0', 'HWC#62=Speed:-200')
-		await sleep(120)
-
-		const sent = variables(context.calls)
-		expect(sent.filter((c) => c[1] === 'hwc_61').length).toBeLessThanOrEqual(3)
-		expect(sent.filter((c) => c[1] === 'hwc_61').at(-1)).toEqual(['variable', 'hwc_61', 0])
-		// Another axis is not held back by the first one's coalescing
-		// -200 scaled past the default dead zone of 6: 500 * 194 / 494 = 196.4
-		expect(sent.filter((c) => c[1] === 'hwc_62')).toEqual([['variable', 'hwc_62', -196]])
-	})
-
-	test('changes within the deadband are not sent, but the return to centre always is', async () => {
-		const { context, panel } = await openSurface()
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:3')
-		await sleep(70)
-		panel.send('HWC#60=Speed:40')
-		await sleep(70)
-		panel.send('HWC#60=Speed:42')
-		await sleep(70)
-		panel.send('HWC#60=Speed:0')
-		await sleep(70)
-
-		// Scaled past the default dead zone of 6: 40 -> 34, 42 -> 36 (within 6 of 34)
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_60', 34],
+			['variable', 'hwc_58', 0],
 			['variable', 'hwc_60', 0],
-		])
-	})
-
-	test('an intensity axis resting a few units off centre reads 0', async () => {
-		const { context, panel } = await openSurface()
-		context.calls.length = 0
-
-		panel.send('HWC#62=Speed:-20')
-		await sleep(70)
-		panel.send('HWC#62=Speed:-3')
-		await sleep(70)
-
-		// -20 scaled past the dead zone: 500 * 14 / 494 = 14.2
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_62', -14],
+			['variable', 'hwc_61', 0],
 			['variable', 'hwc_62', 0],
 		])
-	})
-
-	test('on a fader the dead zone is a change threshold across the whole travel; only 0 and 1000 bypass it', async () => {
-		const { context, panel } = await openSurface({
-			HWc: [
-				{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
-				{ id: 5, x: 300, y: 100, txt: 'Fader', type: 2 },
-			],
-			typeIndex: { '1': { w: 100, in: 'b', out: 'rgb' }, '2': { w: 100, in: 'av' } },
-		})
-
-		for (const v of [700, 703, 997, 1000]) {
-			panel.send(`HWC#5=Abs:${v}`)
-			await sleep(70)
-		}
-
-		// Scaled by 1000 / 994: 700 -> 698, 703 -> 701 (within 6 of 698), 997 -> 997
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_5', 698],
-			['variable', 'hwc_5', 997],
-			['variable', 'hwc_5', 1000],
-		])
-	})
-
-	test('a value queued just before Companion locks is not sent', async () => {
-		const { context, panel } = await openSurface()
-		await sleep(60)
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:100', 'HWC#60=Speed:200')
-		await waitFor(() => variables(context.calls).length >= 1)
-		context.locked = true
-		await sleep(70)
-
-		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', 95]])
 	})
 
 	test('a deflected axis returns to 0 when the link drops, so nothing keeps moving', async () => {
@@ -365,173 +240,6 @@ describe('analog tuning (surface settings)', () => {
 		).toEqual(['analogInterval'])
 	})
 
-	test('an axis that stops short of full travel reaches ±500 once its saturation is set just below its end', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogSaturation_60: 495 })
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:-496')
-		await sleep(70)
-		panel.send('HWC#60=Speed:496')
-		await sleep(70)
-
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_60', -500],
-			['variable', 'hwc_60', 500],
-		])
-	})
-
-	test('between dead zone and saturation the value scales linearly to the full range', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogDeadband_60: 6, analogSaturation_60: 495 })
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:250')
-		await sleep(70)
-		panel.send('HWC#60=Speed:-125')
-		await sleep(70)
-
-		// 500 * (250 - 6) / (495 - 6) = 249.49 -> 249; 500 * (125 - 6) / 489 = 121.68 -> -122
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_60', 249],
-			['variable', 'hwc_60', -122],
-		])
-	})
-
-	test('the scale is continuous at both edges: no jump past the dead zone or before saturation', async () => {
-		const { context, panel, result } = await openSurface()
-		// 500 / (120 - 20) = 5 per panel step
-		await result.surface.updateConfig!({ analogDeadband_61: 20, analogSaturation_61: 120 })
-		await sleep(60)
-		context.calls.length = 0
-
-		for (const v of [-60, -21, -20, 119, 120]) {
-			panel.send(`HWC#61=Speed:${v}`)
-			await sleep(70)
-		}
-
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_61', -200],
-			['variable', 'hwc_61', -5],
-			['variable', 'hwc_61', 0],
-			['variable', 'hwc_61', 495],
-			['variable', 'hwc_61', 500],
-		])
-	})
-
-	test('two axes with different settings are tuned independently', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({
-			analogDeadband_60: 0,
-			analogSaturation_60: 500,
-			analogDeadband_61: 50,
-			analogSaturation_61: 250,
-		})
-		await sleep(60)
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:40', 'HWC#61=Speed:40')
-		await sleep(70)
-		panel.send('HWC#60=Speed:250', 'HWC#61=Speed:250')
-		await sleep(70)
-
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_60', 40],
-			['variable', 'hwc_60', 250],
-			['variable', 'hwc_61', 500],
-		])
-	})
-
-	test('a fader scales from its dead zone above 0 to its saturation', async () => {
-		const { context, panel, result } = await openSurface({
-			HWc: [
-				{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
-				{ id: 5, x: 300, y: 100, txt: 'Fader', type: 2 },
-			],
-			typeIndex: { '1': { w: 100, in: 'b', out: 'rgb' }, '2': { w: 100, in: 'av' } },
-		})
-		await result.surface.updateConfig!({ analogDeadband_5: 10, analogSaturation_5: 990 })
-
-		for (const v of [500, 995, 8]) {
-			panel.send(`HWC#5=Abs:${v}`)
-			await sleep(70)
-		}
-
-		// 1000 * (500 - 10) / 980 = 500
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_5', 500],
-			['variable', 'hwc_5', 1000],
-			['variable', 'hwc_5', 0],
-		])
-	})
-
-	test('a dead zone of 0 sends every change, including a few units off centre', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogDeadband_60: 0 })
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:3')
-		await sleep(70)
-		panel.send('HWC#60=Speed:4')
-		await sleep(70)
-
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_60', 3],
-			['variable', 'hwc_60', 4],
-		])
-	})
-
-	test('a larger dead zone swallows bigger changes, but the ends of travel and centre still get through', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogDeadband_60: 50 })
-		context.calls.length = 0
-
-		// Scaled by 500 / 450: 40 -> 0, 100 -> 56, 140 -> 100 (within 50 of 56), 480 -> 478
-		for (const v of [40, 100, 140, 480, 500, 30]) {
-			panel.send(`HWC#60=Speed:${v}`)
-			await sleep(70)
-		}
-
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_60', 56],
-			['variable', 'hwc_60', 478],
-			['variable', 'hwc_60', 500],
-			['variable', 'hwc_60', 0],
-		])
-	})
-
-	test('the old single dead zone setting still applies to every axis that has no setting of its own', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogDeadband: 0, analogDeadband_61: 50 })
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:3', 'HWC#61=Speed:30')
-		await sleep(70)
-
-		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', 3]])
-	})
-
-	test('a longer send interval coalesces a burst more, still ending on the final value', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogInterval: 300, analogDeadband_61: 0 })
-		await sleep(300)
-		context.calls.length = 0
-
-		panel.send('HWC#61=Speed:100')
-		await sleep(100)
-		panel.send('HWC#61=Speed:200')
-		await sleep(100)
-		panel.send('HWC#61=Speed:250')
-		await sleep(30)
-		expect(variables(context.calls)).toEqual([['variable', 'hwc_61', 100]])
-
-		await sleep(200)
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_61', 100],
-			['variable', 'hwc_61', 250],
-		])
-	})
-
 	test('changing the tuning applies at once, without reconnecting or sending the panel anything', async () => {
 		const { context, panel, result } = await openSurface()
 		const connections = panel.connectionCount
@@ -624,104 +332,17 @@ describe('analog tuning (surface settings)', () => {
 		})
 		expect(parseAnalogTuning({ analogSaturation_5: 2000 }, [fader]).axes[5].saturation).toBe(1000)
 	})
+
+	test('the old single dead zone setting still applies to every axis that has no setting of its own', () => {
+		const upDown = { ...joystick, hwc: 61, variableId: 'hwc_61' }
+		const { axes } = parseAnalogTuning({ analogDeadband: 0, analogDeadband_61: 50 }, [joystick, upDown])
+
+		expect(axes[60].deadband).toBe(0)
+		expect(axes[61].deadband).toBe(50)
+	})
 })
 
 describe('enabling and disabling an axis (surface settings)', () => {
-	test('a disabled axis sends nothing; the other axes are unaffected', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogEnabled_60: false })
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:300', 'HWC#61=Speed:300')
-		await sleep(70)
-		panel.send('HWC#60=Speed:0')
-		await sleep(70)
-
-		// 300 scaled past the default dead zone: 500 * 294 / 494 = 297.6
-		expect(variables(context.calls)).toEqual([['variable', 'hwc_61', 298]])
-	})
-
-	test('disabling a deflected axis drops its queued value and puts it at rest once', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogDeadband_60: 0 })
-		await sleep(60)
-		context.calls.length = 0
-
-		panel.send('HWC#60=Speed:100', 'HWC#60=Speed:200')
-		await waitFor(() => variables(context.calls).length >= 1)
-		await result.surface.updateConfig!({ analogDeadband_60: 0, analogEnabled_60: false })
-		await result.surface.updateConfig!({ analogDeadband_60: 0, analogEnabled_60: false })
-		await sleep(70)
-
-		expect(variables(context.calls)).toEqual([
-			['variable', 'hwc_60', 100],
-			['variable', 'hwc_60', 0],
-		])
-	})
-
-	test('a disabled axis already at rest sends nothing, and the link dropping sends it nothing either', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogEnabled_62: false })
-		await sleep(20)
-		panel.send('HWC#60=Speed:-300')
-		await waitFor(() => variables(context.calls).length >= 5)
-		context.calls.length = 0
-
-		panel.dropClients()
-		await waitFor(() => variables(context.calls).length >= 1)
-		await sleep(30)
-
-		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', 0]])
-	})
-
-	test('a disabled fader keeps the value Companion has', async () => {
-		const { context, panel, result } = await openSurface({
-			HWc: [
-				{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
-				{ id: 5, x: 300, y: 100, txt: 'Fader', type: 2 },
-			],
-			typeIndex: { '1': { w: 100, in: 'b', out: 'rgb' }, '2': { w: 100, in: 'av' } },
-		})
-		panel.send('HWC#5=Abs:1000')
-		await sleep(70)
-
-		await result.surface.updateConfig!({ analogEnabled_5: false })
-		panel.send('HWC#5=Abs:300')
-		await sleep(70)
-
-		expect(variables(context.calls)).toEqual([['variable', 'hwc_5', 1000]])
-	})
-
-	test('enabling an axis again sends its next value', async () => {
-		const { context, panel, result } = await openSurface()
-		await result.surface.updateConfig!({ analogEnabled_60: false })
-		panel.send('HWC#60=Speed:300')
-		await sleep(70)
-		context.calls.length = 0
-
-		await result.surface.updateConfig!({ analogEnabled_60: true })
-		panel.send('HWC#60=Speed:-500')
-		await sleep(70)
-
-		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', -500]])
-	})
-
-	test('a disabled axis is not put at rest when the surface becomes ready', async () => {
-		harness = new Harness({ topology: ptzExtremeTopology })
-		await harness.start()
-		await harness.connect()
-		const info = await harness.waitForAnnouncements()
-		const context = new FakeSurfaceContext()
-		const result = await harness.plugin.openSurface(info.surfaceId, info.pluginInfo, context)
-		harness.opened.push(result)
-		await result.surface.init()
-		await result.surface.updateConfig!({ analogEnabled_58: false, analogEnabled_61: false })
-
-		await result.surface.ready()
-
-		expect(variables(context.calls).map((c) => c[1])).toEqual(['hwc_60', 'hwc_62'])
-	})
-
 	test.each([
 		['missing', {}, true],
 		['true', { analogEnabled_60: true }, true],
@@ -729,31 +350,5 @@ describe('enabling and disabling an axis (surface settings)', () => {
 	])('enabled %s', (_name, config, enabled) => {
 		const axis = { hwc: 60, variableId: 'hwc_60', name: 'LR', suggestedVariable: 'skaarhoj_lr', mode: 'Speed' as const }
 		expect(parseAnalogTuning(config, [axis]).axes[60].enabled).toBe(enabled)
-	})
-})
-
-describe('analog sender with every axis disabled', () => {
-	afterEach(() => {
-		vi.useRealTimers()
-	})
-
-	test('does no work: nothing is sent, nothing is queued and no timer is started', () => {
-		vi.useFakeTimers()
-		const axes = [
-			{ hwc: 60, variableId: 'hwc_60', name: 'LR', suggestedVariable: 'skaarhoj_lr', mode: 'Speed' as const },
-			{ hwc: 61, variableId: 'hwc_61', name: 'UD', suggestedVariable: 'skaarhoj_ud', mode: 'Speed' as const },
-		]
-		const send = vi.fn()
-		const sender = new AnalogSender(axes, send, () => false)
-		sender.configure(parseAnalogTuning({ analogEnabled_60: false, analogEnabled_61: false }, axes))
-
-		for (let v = -500; v <= 500; v += 10) {
-			sender.input(60, v)
-			sender.input(61, -v)
-		}
-		sender.rest()
-
-		expect(send).not.toHaveBeenCalled()
-		expect(vi.getTimerCount()).toBe(0)
 	})
 })
