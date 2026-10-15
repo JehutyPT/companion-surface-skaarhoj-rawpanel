@@ -1,0 +1,3 @@
+# The layout comes from the panel's topology, never from per-model code
+
+The plugin builds the surface from the panel's `PanelTopology?` report: positions from the physical coordinates, control kinds from each HWC's topology `in` type (after `typeOverride`). There are no model tables and no hard-coded HWC numbers, so any Raw Panel gets a usable surface even though only the SK_PTZEXTREMEV2 is tested and supported. We rejected per-model code because every model would need hardware to write and verify it; unknown control types are skipped and logged instead of special-cased, and users adjust a layout with control positions, not code.

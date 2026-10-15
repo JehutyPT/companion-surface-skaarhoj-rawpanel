@@ -38,3 +38,21 @@ Spec, decisions, slices and backlog: [JehutyPT/companion-surface-skaarhoj-rawpan
 - Commits are authored by the user alone: no `Co-Authored-By` trailers.
 - Solo project: no PR process required; branch, commit, merge.
 - Local dev: the Companion REST API URL and key are in `.env.local` (gitignored; `COMPANION_URL`, `COMPANION_API_KEY`, Bearer auth). It can press/rotate buttons at a location and read/set custom variables, but cannot create buttons or pages.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub issues on this repo, via `gh`; PRDs are parent issues, implementation tickets are sub-issues with formal blocked-by edges. External issues and PRs are not triage surfaces. See `docs/agents/issue-tracker.md`.
+
+### Issue labels and readiness
+
+`prd` for parents, `bug` or `enhancement` for tickets, `ready-for-agent` applied last to a validated contract with no open blockers. See `docs/agents/issue-labels.md`.
+
+### Implementation contracts
+
+A ticket's `## Implementation Contract` section is its sole implementation authority. See `docs/agents/implementation-contract.md`.
+
+### Domain docs
+
+Single context: root `GLOSSARY.md` and `docs/adr/`. See `docs/agents/domain.md`.

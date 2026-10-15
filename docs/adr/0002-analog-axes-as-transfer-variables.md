@@ -1,0 +1,3 @@
+# Analog axes are input transfer variables, not layout controls
+
+Joysticks, rockers, faders and T-bars send a continuous value, and Companion 5.1 has no analog input type (bitfocus/companion#1708). Each axis is therefore one input transfer variable, sent with `sendVariableValue` on change past the dead zone and at most once per send interval, in the panel's own scale (`Speed` -500..500, `Abs` 0..1000), not a normalised one. We rejected turning axes into key presses or rotate steps, as SKAARHOJ's rawpanel module does, because that loses the value; the cost is that the user creates and picks one custom variable per axis, since a plugin cannot create one.
