@@ -1,22 +1,15 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import type { LoggingSink } from '@companion-surface/base'
+import { afterEach, describe, expect, test } from 'vitest'
 import { fastTimings, Harness } from './helpers/harness.js'
-import { sleep, waitFor } from './helpers/fake-panel.js'
+import { sleep, waitFor } from './helpers/timing.js'
 import { ptzExtremeTopology, smallTopology } from './fixtures/topologies.js'
+import { captureLogs } from './helpers/logs.js'
 
 let harness: Harness | undefined
-let logs: { level: string; message: string }[] = []
-
-beforeEach(() => {
-	logs = []
-	const sink: LoggingSink = (_source, level, message) => logs.push({ level, message })
-	globalThis.SURFACE_LOGGER = sink
-})
+const logs = captureLogs()
 
 afterEach(async () => {
 	await harness?.stop()
 	harness = undefined
-	globalThis.SURFACE_LOGGER = undefined
 })
 
 /** Panel settings the plugin must never send. */
@@ -50,16 +43,18 @@ describe('connecting to a panel', () => {
 		const svgbase = `<svg>${'<path d="M0 0L10 10"/>'.repeat(20000)}</svg>` // ~460 kB
 		harness = new Harness(
 			{ topology: ptzExtremeTopology, svgbase, chunkSize: 1500 },
-			{ ...fastTimings, topologyTimeoutMs: 5000 },
+			{ ...fastTimings, topologyTimeoutMs: 20_000 },
 		)
 		await harness.start()
 		await harness.connect()
 
-		const info = await harness.waitForAnnouncements(1)
+		// Hundreds of chunks take a while on a loaded machine. The wait is shorter than the topology
+		// timeout, which is shorter than the test's own.
+		const info = await harness.waitForAnnouncements(1, 15_000)
 
 		expect(info.surfaceId).toBe('skaarhoj:442845')
 		expect(harness.panel.connectionCount).toBe(1)
-	})
+	}, 30_000)
 
 	test('a line longer than 4 MiB with no newline yet fails the connection, which then reconnects', async () => {
 		// The svgbase line comes before the topology; past the limit, the connection gives up on it

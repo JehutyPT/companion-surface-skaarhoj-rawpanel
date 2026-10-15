@@ -2,40 +2,35 @@
  * Opt-in panel settings: the sleep timeout and tying the panel's brightness to Companion's.
  * With defaults, nothing touches the panel's own settings.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import type { CompanionInputFieldDropdown, LoggingSink } from '@companion-surface/base'
+import { afterEach, describe, expect, test } from 'vitest'
+import type { CompanionInputFieldDropdown } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
-import { sleep, waitFor } from './helpers/fake-panel.js'
+import { sleep, waitFor } from './helpers/timing.js'
 import { ptzExtremeTopology } from './fixtures/topologies.js'
 import { layoutOf } from './helpers/layout.js'
 import { parseSurfaceSettings, surfaceConfigFields } from '../settings.js'
 import type { AnalogAxis } from '../topology.js'
+import { captureLogs } from './helpers/logs.js'
 
 let harness: Harness | undefined
 
-beforeEach(() => {
-	const sink: LoggingSink = () => null
-	globalThis.SURFACE_LOGGER = sink
-})
+// Keep the plugin's logs out of the test output
+captureLogs()
 
 afterEach(async () => {
 	await harness?.stop()
 	harness = undefined
-	globalThis.SURFACE_LOGGER = undefined
 })
 
 const settingLines = (lines: string[]) => lines.filter((l) => /^(SleepTimer|PanelBrightness)=/.test(l))
 
-/** Open the surface the way the host does: config before ready, then brightness. */
+/** Open the surface, then give it `config` and `brightness` as the host does, and settle. */
 async function openSurface(config: Record<string, unknown>, brightness = 50) {
 	harness = new Harness({ topology: ptzExtremeTopology })
-	await harness.start()
-	await harness.connect()
-	const { result } = await harness.open(await harness.waitForAnnouncements())
+	const { result } = await harness.connectAndOpen()
 	await result.surface.updateConfig!(config)
 	await result.surface.setBrightness(brightness)
-	await waitFor(() => harness!.panel.commands.length > 0)
-	await sleep(30)
+	await harness.settle()
 	return { surface: result.surface, result, panel: harness.panel }
 }
 
@@ -45,7 +40,7 @@ async function reconnect() {
 	panel.clearReceived()
 	panel.dropClients()
 	await waitFor(() => panel.connectionCount > connections && panel.commands.length > 0, 2000, 'reconnect')
-	await sleep(30)
+	await harness!.settle()
 }
 
 const defaults = { sleepTimer: 'panel', linkBrightness: false }

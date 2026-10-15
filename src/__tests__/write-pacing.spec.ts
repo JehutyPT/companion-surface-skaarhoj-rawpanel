@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from 'vitest'
 import { PanelConnection } from '../connection.js'
 import { fastTimings } from './helpers/harness.js'
-import { FakeRawPanel, sleep, waitFor } from './helpers/fake-panel.js'
+import { FakeRawPanel } from './helpers/fake-panel.js'
+import { sleep, waitFor } from './helpers/timing.js'
 import { smallTopology } from './fixtures/topologies.js'
 
 /** Long enough that a write held for a full interval is clearly distinguishable from one sent at once. */

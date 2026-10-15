@@ -157,16 +157,3 @@ export class FakeRawPanel {
 		}
 	}
 }
-
-/** Poll until `predicate` is true, or fail after `timeoutMs`. */
-export async function waitFor(predicate: () => boolean, timeoutMs = 2000, message = 'condition'): Promise<void> {
-	const start = Date.now()
-	while (!predicate()) {
-		if (Date.now() - start > timeoutMs) throw new Error(`Timed out waiting for ${message}`)
-		await new Promise((resolve) => setTimeout(resolve, 5))
-	}
-}
-
-export async function sleep(ms: number): Promise<void> {
-	await new Promise((resolve) => setTimeout(resolve, ms))
-}

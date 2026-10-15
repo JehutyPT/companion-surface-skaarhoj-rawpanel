@@ -3,26 +3,19 @@
  * 2026-10-14) through the fake panel and checks what reaches Companion.
  */
 import { readFileSync } from 'node:fs'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import type { LoggingSink } from '@companion-surface/base'
+import { afterEach, describe, expect, test } from 'vitest'
 import { Harness } from './helpers/harness.js'
-import { sleep, waitFor } from './helpers/fake-panel.js'
+import { waitFor, waitForQuiet } from './helpers/timing.js'
 import type { ContextCall } from './helpers/fake-context.js'
 import { ptzExtremeTopology } from './fixtures/topologies.js'
+import { captureLogs } from './helpers/logs.js'
 
 let harness: Harness | undefined
-let logs: { level: string; message: string }[] = []
-
-beforeEach(() => {
-	logs = []
-	const sink: LoggingSink = (_source, level, message) => logs.push({ level, message })
-	globalThis.SURFACE_LOGGER = sink
-})
+const logs = captureLogs()
 
 afterEach(async () => {
 	await harness?.stop()
 	harness = undefined
-	globalThis.SURFACE_LOGGER = undefined
 })
 
 /** The lines the panel sent after its `list` reply: input events and `map=` lines. */
@@ -51,15 +44,27 @@ function lastSpeeds(lines: string[]): Record<string, number> {
 	return result
 }
 
-async function replay(lines: string[]): Promise<ContextCall[]> {
+/**
+ * Open the surface, send `lines` from the panel, and wait until Companion has every expected key
+ * call and each analog variable's expected last value, then until no call arrives for three send
+ * intervals. Nothing more can arrive after that: keys go to Companion as each line arrives, so all
+ * lines have been read once the last key call is in, and an axis sends only on change, at most once
+ * per send interval, so once a value has been pending for three intervals none is left to send.
+ */
+async function replay(lines: string[], lastValues: Record<string, unknown>): Promise<ContextCall[]> {
 	harness = new Harness({ topology: ptzExtremeTopology })
-	await harness.start()
-	await harness.connect()
-	const { context } = await harness.open(await harness.waitForAnnouncements())
-	await waitFor(() => harness!.panel.commands.length > 0)
+	const { context } = await harness.connectAndOpen()
 
 	harness.panel.send(...lines)
-	await sleep(150)
+	const keys = expectedCalls(lines).length
+	await waitFor(
+		() =>
+			keyCalls(context.calls).length >= keys &&
+			Object.entries(lastValues).every(([id, value]) => lastVariables(context.calls)[id] === value),
+		4000,
+		'the replay to reach Companion',
+	)
+	await waitForQuiet(() => context.calls.length, 150, 2000, 'the replay to finish')
 	return context.calls
 }
 
@@ -90,11 +95,13 @@ describe('replaying real panel sessions', () => {
 	test('buttons, four-way edges, encoder turns and pushes, zoom rocker', async () => {
 		const lines = captured('ptz-extreme-capture-buttons.log')
 
-		const calls = await replay(lines)
+		const lastValues = { hwc_60: 0, hwc_61: 0, hwc_62: 0, ...lastSpeeds(lines) }
+
+		const calls = await replay(lines, lastValues)
 
 		expect(keyCalls(calls)).toEqual(expectedCalls(lines))
 		// The zoom rocker's last value reaches Companion (this capture ends mid-push, at -500)
-		expect(lastVariables(calls)).toEqual({ hwc_60: 0, hwc_61: 0, hwc_62: 0, ...lastSpeeds(lines) })
+		expect(lastVariables(calls)).toEqual(lastValues)
 		expect(lastVariables(calls).hwc_58).toBe(-500)
 		// Spot checks against the capture, independent of the mapping above
 		expect(count(calls, 'rotate', 'hwc/59')).toBe(93)
@@ -106,18 +113,20 @@ describe('replaying real panel sessions', () => {
 		expect(count(calls, 'keyUp', 'hwc/13')).toBe(5)
 		// Every line was understood: none logged as unknown
 		expect(logs.filter((l) => l.message.startsWith('Ignoring line'))).toEqual([])
-	})
+	}, 10_000)
 
 	test('joystick: each axis ends on its last value, coalesced; the top button and A10-A12 are keys', async () => {
 		const lines = captured('ptz-extreme-capture-joystick.log')
 		expect(lines.filter((l) => /^HWC#6[012]=Speed:/.test(l))).toHaveLength(168)
 
-		const calls = await replay(lines)
+		const lastValues = { hwc_58: 0, hwc_60: 0, hwc_61: 0, hwc_62: 0 }
+
+		const calls = await replay(lines, lastValues)
 
 		expect(keyCalls(calls)).toEqual(expectedCalls(lines))
 		// HWC 62 ends at -3, within the deadband of the 0 it started at, so Companion keeps 0
 		expect(lastSpeeds(lines)).toEqual({ hwc_60: 0, hwc_61: 0, hwc_62: -3 })
-		expect(lastVariables(calls)).toEqual({ hwc_58: 0, hwc_60: 0, hwc_61: 0, hwc_62: 0 })
+		expect(lastVariables(calls)).toEqual(lastValues)
 		// 168 axis events in one burst: coalesced to a few sends per axis
 		expect(calls.filter((c) => c[0] === 'variable').length).toBeLessThan(20)
 		expect(keyCalls(calls).slice(0, 2)).toEqual([
@@ -127,5 +136,5 @@ describe('replaying real panel sessions', () => {
 		expect(count(calls, 'keyDown', 'hwc/63')).toBe(2)
 		expect(count(calls, 'keyUp', 'hwc/63')).toBe(2)
 		expect(logs.filter((l) => l.message.startsWith('Ignoring line'))).toEqual([])
-	})
+	}, 10_000)
 })

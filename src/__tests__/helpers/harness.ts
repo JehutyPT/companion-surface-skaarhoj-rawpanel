@@ -2,7 +2,8 @@ import type { DetectionSurfaceInfo, OpenSurfaceResult, SurfacePlugin } from '@co
 import { createRawPanelPlugin, type RawPanelDeviceInfo } from '../../main.js'
 import type { ConnectionTimings } from '../../connection.js'
 import type { LinkTimings } from '../../link.js'
-import { FakeRawPanel, waitFor, type FakePanelOptions } from './fake-panel.js'
+import { FakeRawPanel, type FakePanelOptions } from './fake-panel.js'
+import { waitFor, waitForQuiet } from './timing.js'
 import { FakeSurfaceContext } from './fake-context.js'
 
 /** Short timings so link loss, reconnects and timeouts happen within a test. */
@@ -52,8 +53,8 @@ export class Harness {
 		])
 	}
 
-	async waitForAnnouncements(count = 1): Promise<DetectionSurfaceInfo<RawPanelDeviceInfo>> {
-		await waitFor(() => this.announced.length >= count, 2000, `${count} surfacesConnected`)
+	async waitForAnnouncements(count = 1, timeoutMs = 2000): Promise<DetectionSurfaceInfo<RawPanelDeviceInfo>> {
+		await waitFor(() => this.announced.length >= count, timeoutMs, `${count} surfacesConnected`)
 		return this.announced[count - 1]
 	}
 
@@ -69,6 +70,29 @@ export class Harness {
 		this.contexts.push(context)
 		this.opened.push(result)
 		return { result, context }
+	}
+
+	/**
+	 * Connect to the fake panel with `config`, open the announced surface the way the host does and
+	 * settle: wait for the resync on connect to reach the panel, then for it to finish.
+	 */
+	async connectAndOpen(
+		config: Record<string, unknown> = {},
+	): Promise<{ result: OpenSurfaceResult; context: FakeSurfaceContext; panel: FakeRawPanel }> {
+		await this.start()
+		await this.connect('conn1', config)
+		const opened = await this.open(await this.waitForAnnouncements())
+		await waitFor(() => this.panel.commands.length > 0, 2000, 'the resync on connect')
+		await this.settle()
+		return { ...opened, panel: this.panel }
+	}
+
+	/**
+	 * Wait for the writes in flight to reach the panel: until no new command has arrived for
+	 * `quietMs`. Takes at least `quietMs`, longer while commands keep arriving.
+	 */
+	async settle(quietMs = 40): Promise<void> {
+		await waitForQuiet(() => this.panel.commands.length, quietMs, 2000, 'the panel to settle')
 	}
 
 	async stop(): Promise<void> {

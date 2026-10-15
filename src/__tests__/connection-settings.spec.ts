@@ -2,30 +2,23 @@
  * Connection settings: the remote connection config fields (address, port, control positions) and
  * reading one remote connection entry's config into valid connection settings or a rejection.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import type { LoggingSink } from '@companion-surface/base'
+import { afterEach, describe, expect, test } from 'vitest'
 import { Harness } from './helpers/harness.js'
-import { sleep, waitFor } from './helpers/fake-panel.js'
+import { sleep, waitFor } from './helpers/timing.js'
 import { smallTopology } from './fixtures/topologies.js'
 import { createRawPanelPlugin } from '../main.js'
 import { parseConnectionSettings } from '../connection-settings.js'
+import { captureLogs, messagesAt } from './helpers/logs.js'
 
 let harness: Harness | undefined
-let logs: { level: string; message: string }[] = []
-
-beforeEach(() => {
-	logs = []
-	const sink: LoggingSink = (_source, level, message) => logs.push({ level, message })
-	globalThis.SURFACE_LOGGER = sink
-})
+const logs = captureLogs()
 
 afterEach(async () => {
 	await harness?.stop()
 	harness = undefined
-	globalThis.SURFACE_LOGGER = undefined
 })
 
-const warnings = () => logs.filter((l) => l.level === 'warn').map((l) => l.message)
+const warnings = () => messagesAt(logs, 'warn')
 
 describe('connection settings fields', () => {
 	// Characterization: written before connection settings left the remote, and unchanged by the move.

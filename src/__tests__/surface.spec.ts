@@ -1,52 +1,35 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { validateSurfaceLayout, type LoggingSink, type SurfaceInstance } from '@companion-surface/base'
+import { afterEach, describe, expect, test } from 'vitest'
+import { validateSurfaceLayout, type SurfaceInstance } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
-import { sleep, waitFor } from './helpers/fake-panel.js'
+import { sleep, waitFor } from './helpers/timing.js'
 import type { FakeSurfaceContext } from './helpers/fake-context.js'
 import { ptzExtremeLayoutHwcs, ptzExtremeTopology, smallTopology } from './fixtures/topologies.js'
 import { layoutOf } from './helpers/layout.js'
+import { captureLogs } from './helpers/logs.js'
 
 let harness: Harness | undefined
-let logs: { level: string; message: string }[] = []
-
-beforeEach(() => {
-	logs = []
-	const sink: LoggingSink = (_source, level, message) => logs.push({ level, message })
-	globalThis.SURFACE_LOGGER = sink
-})
+const logs = captureLogs()
 
 afterEach(async () => {
 	await harness?.stop()
 	harness = undefined
-	globalThis.SURFACE_LOGGER = undefined
 })
 
 const signal = new AbortController().signal
-
-/** Connect to a fake panel with `topology`, open the surface and wait for its initial push. */
-async function openSurface(topology: unknown) {
-	harness = new Harness({ topology })
-	await harness.start()
-	await harness.connect()
-	const opened = await harness.open(await harness.waitForAnnouncements())
-	const panel = harness.panel
-	await waitFor(() => panel.commands.length > 0)
-	await sleep(30)
-	return { ...opened, panel: harness.panel }
-}
 
 /** Draw, then wait for the queue to flush and return what reached the panel. */
 async function drawAndCollect(surface: SurfaceInstance, ...draws: Parameters<SurfaceInstance['draw']>[1][]) {
 	harness!.panel.clearReceived()
 	for (const props of draws) await surface.draw(signal, props)
-	await sleep(40)
+	await harness!.settle()
 	return harness!.panel.commands
 }
 
 describe('layout from topology', () => {
 	// The layout rules are tested on buildLayout directly (topology.spec.ts); these check the wiring.
 	test('the layout registered at open is the one built from the topology, with analog axes as transfer variables', async () => {
-		const { result } = await openSurface(ptzExtremeTopology)
+		harness = new Harness({ topology: ptzExtremeTopology })
+		const { result } = await harness.connectAndOpen()
 		const layout = result.registerProps.surfaceLayout
 
 		validateSurfaceLayout(layout)
@@ -57,7 +40,8 @@ describe('layout from topology', () => {
 	})
 
 	test('controls with neither an LED nor a display get no commands, on connect or on draw', async () => {
-		const { result, panel } = await openSurface(ptzExtremeTopology)
+		harness = new Harness({ topology: ptzExtremeTopology })
+		const { result, panel } = await harness.connectAndOpen()
 
 		expect(panel.commands.filter((l) => /^HWCc?#(57|59|63)=/.test(l))).toEqual([])
 		const sent = await drawAndCollect(result.surface, {
@@ -70,8 +54,9 @@ describe('layout from topology', () => {
 	})
 
 	test('a control with an unknown input type is skipped and logged once', async () => {
-		const { result } = await openSurface(smallTopology)
-		harness!.panel.dropClients()
+		harness = new Harness({ topology: smallTopology })
+		const { result } = await harness.connectAndOpen()
+		harness.panel.dropClients()
 		await waitFor(() => harness!.panel.connectionCount === 2 && harness!.panel.commands.length > 0)
 
 		expect(result.registerProps.surfaceLayout.controls['hwc/12']).toBeUndefined()
@@ -84,7 +69,8 @@ describe('layout from topology', () => {
 describe('drawing', () => {
 	// LED colours and text encoding are tested on ledCommands and textCommand (protocol.spec.ts).
 	test('opening the surface turns every control off and clears every display', async () => {
-		const { panel } = await openSurface(smallTopology)
+		harness = new Harness({ topology: smallTopology })
+		const { panel } = await harness.connectAndOpen()
 
 		expect(panel.commands.sort()).toEqual(
 			[
@@ -102,7 +88,8 @@ describe('drawing', () => {
 	})
 
 	test('black turns the LED off', async () => {
-		const { result } = await openSurface(smallTopology)
+		harness = new Harness({ topology: smallTopology })
+		const { result } = await harness.connectAndOpen()
 		await drawAndCollect(result.surface, { controlId: 'hwc/1', color: '#00ff00', pressed: false })
 
 		const sent = await drawAndCollect(result.surface, { controlId: 'hwc/1', color: '#000000', pressed: false })
@@ -111,7 +98,8 @@ describe('drawing', () => {
 	})
 
 	test('pressed shows a lit button dimmed and an unlit button white', async () => {
-		const { result } = await openSurface(smallTopology)
+		harness = new Harness({ topology: smallTopology })
+		const { result } = await harness.connectAndOpen()
 
 		const sent = await drawAndCollect(
 			result.surface,
@@ -123,7 +111,8 @@ describe('drawing', () => {
 	})
 
 	test('one line of text is shown as one big line', async () => {
-		const { result } = await openSurface(smallTopology)
+		harness = new Harness({ topology: smallTopology })
+		const { result } = await harness.connectAndOpen()
 
 		const sent = await drawAndCollect(result.surface, { controlId: 'hwc/10', text: 'CAM 1', pressed: false })
 
@@ -131,7 +120,8 @@ describe('drawing', () => {
 	})
 
 	test('text is ignored on a control without a display', async () => {
-		const { result } = await openSurface(smallTopology)
+		harness = new Harness({ topology: smallTopology })
+		const { result } = await harness.connectAndOpen()
 
 		const sent = await drawAndCollect(result.surface, { controlId: 'hwc/1', text: 'Hello', pressed: false })
 
@@ -139,27 +129,31 @@ describe('drawing', () => {
 	})
 
 	test('blank turns lit controls off and clears displays that show text', async () => {
-		const { result } = await openSurface(smallTopology)
+		harness = new Harness({ topology: smallTopology })
+		const { result } = await harness.connectAndOpen()
 		await drawAndCollect(
 			result.surface,
 			{ controlId: 'hwc/1', color: '#ff0000', pressed: false },
 			{ controlId: 'hwc/10', color: '#0000ff', text: 'Hi', pressed: false },
 		)
-		harness!.panel.clearReceived()
+		harness.panel.clearReceived()
 
 		await result.surface.blank()
-		await sleep(40)
+		await waitFor(() => harness!.panel.commands.length > 0, 2000, 'the blank')
+		await harness.settle()
 
-		expect(harness!.panel.commands.sort()).toEqual(['HWC#1=0', 'HWC#10=0', 'HWCt#10=||||||'].sort())
+		expect(harness.panel.commands.sort()).toEqual(['HWC#1=0', 'HWC#10=0', 'HWCt#10=||||||'].sort())
 	})
 
 	test('waking from sleep re-sends every control', async () => {
-		const { result, panel } = await openSurface(smallTopology)
+		harness = new Harness({ topology: smallTopology })
+		const { result, panel } = await harness.connectAndOpen()
 		await drawAndCollect(result.surface, { controlId: 'hwc/1', color: '#ff0000', pressed: false })
 		panel.clearReceived()
 
 		panel.send('_isSleeping=1', '_isSleeping=0')
-		await sleep(40)
+		await waitFor(() => panel.commands.length > 0, 2000, 'the resync on wake')
+		await harness.settle()
 
 		expect(panel.commands).toContain('HWCc#1=240')
 		expect(panel.commands).toContain('HWC#1=4')
@@ -170,7 +164,8 @@ describe('drawing', () => {
 
 describe('input', () => {
 	async function openWithInput(topology: unknown = smallTopology) {
-		const opened = await openSurface(topology)
+		harness = new Harness({ topology })
+		const opened = await harness.connectAndOpen()
 		const send = async (...lines: string[]) => {
 			opened.panel.send(...lines)
 			await sleep(30)
@@ -287,7 +282,8 @@ describe('input', () => {
 
 describe('closing', () => {
 	test('close can be called twice', async () => {
-		const { result } = await openSurface(smallTopology)
+		harness = new Harness({ topology: smallTopology })
+		const { result } = await harness.connectAndOpen()
 
 		await result.surface.close()
 		await result.surface.close()

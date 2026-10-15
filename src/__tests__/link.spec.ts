@@ -1,23 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import type { DetectionSurfaceInfo, LoggingSink } from '@companion-surface/base'
+import type { DetectionSurfaceInfo } from '@companion-surface/base'
 import { PanelLink, type LinkTimings, type RawPanelDeviceInfo } from '../link.js'
 import { FakeConnection, type FakeIdentity } from './helpers/fake-connection.js'
 import { ptzExtremeTopology, smallTopology } from './fixtures/topologies.js'
+import { captureLogs } from './helpers/logs.js'
 
 const panel: FakeIdentity = { model: 'SK_PTZEXTREMEV2', serial: '442845', topology: smallTopology }
 
-let logs: { level: string; message: string }[] = []
+const logs = captureLogs()
 
 beforeEach(() => {
 	vi.useFakeTimers()
-	logs = []
-	const sink: LoggingSink = (_source, level, message) => logs.push({ level, message })
-	globalThis.SURFACE_LOGGER = sink
 })
 
 afterEach(() => {
 	vi.useRealTimers()
-	globalThis.SURFACE_LOGGER = undefined
 })
 
 /** A started link on an in-memory connection, recording its announcements and events. */

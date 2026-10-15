@@ -2,31 +2,25 @@
  * The custom control map: a remote connection setting that moves listed controls to a chosen
  * row and column, leaving the rest where the topology puts them.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { validateSurfaceLayout, type LoggingSink } from '@companion-surface/base'
+import { afterEach, describe, expect, test } from 'vitest'
+import { validateSurfaceLayout } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
-import { sleep } from './helpers/fake-panel.js'
+import { sleep } from './helpers/timing.js'
 import { smallTopology } from './fixtures/topologies.js'
 import { cellsOf, layoutOf } from './helpers/layout.js'
 import { formatControlMap, parseControlMap } from '../control-map.js'
 import { createRawPanelPlugin } from '../main.js'
+import { captureLogs, messagesAt } from './helpers/logs.js'
 
 let harness: Harness | undefined
-let logs: { level: string; message: string }[] = []
-
-beforeEach(() => {
-	logs = []
-	const sink: LoggingSink = (_source, level, message) => logs.push({ level, message })
-	globalThis.SURFACE_LOGGER = sink
-})
+const logs = captureLogs()
 
 afterEach(async () => {
 	await harness?.stop()
 	harness = undefined
-	globalThis.SURFACE_LOGGER = undefined
 })
 
-const warnings = () => logs.filter((l) => l.level === 'warn').map((l) => l.message)
+const warnings = () => messagesAt(logs, 'warn')
 
 /** Lay out smallTopology with `controlMap`; returns the layout as `hwc: [row, column]` and its notes. */
 function layoutWithMap(controlMap: string) {
@@ -37,9 +31,7 @@ function layoutWithMap(controlMap: string) {
 /** Connect with `controlMap`, open the surface and return its layout as `hwc: [row, column]`. */
 async function openWithMap(controlMap: string) {
 	harness = new Harness({ topology: smallTopology })
-	await harness.start()
-	await harness.connect('conn1', { controlMap })
-	const { result } = await harness.open(await harness.waitForAnnouncements())
+	const { result } = await harness.connectAndOpen({ controlMap })
 	const layout = result.registerProps.surfaceLayout
 	validateSurfaceLayout(layout)
 	return Object.fromEntries(

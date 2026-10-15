@@ -1,41 +1,29 @@
 /**
  * Analog controls (joysticks, rockers, faders, T-bars) as Companion input transfer variables.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import type { LoggingSink } from '@companion-surface/base'
+import { afterEach, describe, expect, test } from 'vitest'
 import { Harness } from './helpers/harness.js'
-import { sleep, waitFor } from './helpers/fake-panel.js'
+import { sleep, waitFor } from './helpers/timing.js'
 import { FakeSurfaceContext, type ContextCall } from './helpers/fake-context.js'
 import { ptzExtremeTopology } from './fixtures/topologies.js'
+import { captureLogs } from './helpers/logs.js'
 
 let harness: Harness | undefined
 
-beforeEach(() => {
-	const sink: LoggingSink = () => null
-	globalThis.SURFACE_LOGGER = sink
-})
+// Keep the plugin's logs out of the test output
+captureLogs()
 
 afterEach(async () => {
 	await harness?.stop()
 	harness = undefined
-	globalThis.SURFACE_LOGGER = undefined
 })
-
-async function openSurface(topology: unknown = ptzExtremeTopology) {
-	harness = new Harness({ topology })
-	await harness.start()
-	await harness.connect()
-	const opened = await harness.open(await harness.waitForAnnouncements())
-	await waitFor(() => harness!.panel.commands.length > 0)
-	await sleep(30)
-	return { ...opened, panel: harness.panel }
-}
 
 const variables = (calls: ContextCall[]) => calls.filter((c) => c[0] === 'variable')
 
 describe('analog transfer variables', () => {
 	test('every analog axis in the topology is one input transfer variable, named from the topology', async () => {
-		const { result } = await openSurface()
+		harness = new Harness({ topology: ptzExtremeTopology })
+		const { result } = await harness.connectAndOpen()
 
 		expect(result.registerProps.transferVariables).toEqual([
 			{
@@ -68,28 +56,34 @@ describe('analog transfer variables', () => {
 	})
 
 	test('a topology without analog controls declares no transfer variables', async () => {
-		const { result } = await openSurface({
-			HWc: [{ id: 1, x: 100, y: 100, txt: 'One', type: 1 }],
-			typeIndex: { '1': { w: 100, in: 'b', out: 'rgb' } },
+		harness = new Harness({
+			topology: {
+				HWc: [{ id: 1, x: 100, y: 100, txt: 'One', type: 1 }],
+				typeIndex: { '1': { w: 100, in: 'b', out: 'rgb' } },
+			},
 		})
+		const { result } = await harness.connectAndOpen()
 
 		expect(result.registerProps.transferVariables).toBeUndefined()
 	})
 
 	test('an unlabelled axis or a repeated label still gets a unique name and suggestion', async () => {
-		const { result } = await openSurface({
-			HWc: [
-				{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
-				{ id: 5, x: 300, y: 100, txt: 'Fader', type: 2 },
-				{ id: 6, x: 500, y: 100, txt: 'Fader', type: 2 },
-				{ id: 7, x: 700, y: 100, txt: '', type: 3 },
-			],
-			typeIndex: {
-				'1': { w: 100, in: 'b', out: 'rgb' },
-				'2': { w: 100, in: 'av' },
-				'3': { w: 100, in: 'ah' },
+		harness = new Harness({
+			topology: {
+				HWc: [
+					{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
+					{ id: 5, x: 300, y: 100, txt: 'Fader', type: 2 },
+					{ id: 6, x: 500, y: 100, txt: 'Fader', type: 2 },
+					{ id: 7, x: 700, y: 100, txt: '', type: 3 },
+				],
+				typeIndex: {
+					'1': { w: 100, in: 'b', out: 'rgb' },
+					'2': { w: 100, in: 'av' },
+					'3': { w: 100, in: 'ah' },
+				},
 			},
 		})
+		const { result } = await harness.connectAndOpen()
 		const vars = result.registerProps.transferVariables!
 
 		expect(vars.map((v) => [v.id, v.name])).toEqual([
@@ -128,7 +122,8 @@ describe('analog values', () => {
 	})
 
 	test('a deflected axis returns to 0 when the link drops, so nothing keeps moving', async () => {
-		const { context, panel } = await openSurface()
+		harness = new Harness({ topology: ptzExtremeTopology })
+		const { context, panel } = await harness.connectAndOpen()
 		panel.send('HWC#60=Speed:-300', 'HWC#58=Speed:250')
 		await waitFor(() => variables(context.calls).length >= 6)
 		context.calls.length = 0
@@ -143,7 +138,8 @@ describe('analog values', () => {
 	})
 
 	test('while locked, moves are ignored but the return to centre is still sent', async () => {
-		const { context, panel } = await openSurface()
+		harness = new Harness({ topology: ptzExtremeTopology })
+		const { context, panel } = await harness.connectAndOpen()
 		panel.send('HWC#60=Speed:-300')
 		await waitFor(() => variables(context.calls).length >= 5)
 		context.calls.length = 0
@@ -158,7 +154,8 @@ describe('analog values', () => {
 	})
 
 	test('nothing is sent after the surface closes', async () => {
-		const { context, panel, result } = await openSurface()
+		harness = new Harness({ topology: ptzExtremeTopology })
+		const { context, panel, result } = await harness.connectAndOpen()
 		panel.send('HWC#60=Speed:100', 'HWC#60=Speed:200')
 		await result.surface.close()
 		context.calls.length = 0
@@ -171,7 +168,8 @@ describe('analog values', () => {
 
 describe('analog tuning (surface settings)', () => {
 	test('changing the tuning applies at once, without reconnecting or sending the panel anything', async () => {
-		const { context, panel, result } = await openSurface()
+		harness = new Harness({ topology: ptzExtremeTopology })
+		const { context, panel, result } = await harness.connectAndOpen()
 		const connections = panel.connectionCount
 		panel.clearReceived()
 		await result.surface.updateConfig!({ analogDeadband_60: 0, analogSaturation_60: 400, analogInterval: 10 })
