@@ -117,6 +117,49 @@ describe('panel settings', () => {
 		expect(settingLines(panel.commands)).toEqual([])
 	})
 
+	describe('withdrawn while the panel is busy, before the line went out', () => {
+		const led = layoutOf(ptzExtremeTopology).controls.find((c) => c.hasLed)!
+		const signal = new AbortController().signal
+
+		/** BSY, run `change`, then RDY; returns the setting lines the panel received meanwhile. */
+		async function whileBusy(surface: Awaited<ReturnType<typeof openSurface>>['surface'], change: () => Promise<void>) {
+			const panel = harness!.panel
+			panel.clearReceived()
+			panel.send('BSY')
+			// The panel acknowledges nothing for BSY; give the plugin time to read it, as the flow-control tests do
+			await sleep(30)
+			await change()
+			// A marker queued last, so its arrival shows the queue flushed after RDY
+			await surface.draw(signal, { controlId: led.controlId, color: '#ff0000', pressed: false })
+			panel.send('RDY')
+			await waitFor(() => panel.commands.some((l) => l.startsWith(`HWC#${led.hwc}=`)), 2000, 'the flush on RDY')
+			await harness!.settle()
+			return settingLines(panel.received)
+		}
+
+		test('a sleep timeout set back to "leave the panel\'s setting" is never sent', async () => {
+			const { surface } = await openSurface(defaults)
+
+			const sent = await whileBusy(surface, async () => {
+				await surface.updateConfig!({ ...defaults, sleepTimer: 300000 })
+				await surface.updateConfig!(defaults)
+			})
+
+			expect(sent).toEqual([])
+		})
+
+		test('brightness linked then unlinked is never sent', async () => {
+			const { surface } = await openSurface(defaults, 75)
+
+			const sent = await whileBusy(surface, async () => {
+				await surface.updateConfig!({ ...defaults, linkBrightness: true })
+				await surface.updateConfig!(defaults)
+			})
+
+			expect(sent).toEqual([])
+		})
+	})
+
 	test('a config or brightness change after close sends nothing to the panel', async () => {
 		const { surface, panel } = await openSurface({ ...defaults, linkBrightness: true }, 50)
 		await surface.close()

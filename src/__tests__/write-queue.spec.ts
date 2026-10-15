@@ -136,6 +136,33 @@ describe('coalescing and diffing', () => {
 	})
 })
 
+describe('discarding', () => {
+	test("a discarded key's pending line is never sent; other keys are", () => {
+		const { queue, sent } = makeQueue()
+		queue.setBusy(true)
+		queue.write('SleepTimer', 'SleepTimer=300000')
+		queue.write('HWC#1', 'HWC#1=4')
+
+		queue.discard('SleepTimer')
+		queue.setBusy(false)
+		vi.advanceTimersByTime(0)
+
+		expect(sent()).toEqual(['HWC#1=4'])
+	})
+
+	test('a line already sent stays sent: the same line again is still dropped', () => {
+		const { queue, sent } = makeQueue()
+		queue.write('SleepTimer', 'SleepTimer=300000')
+		vi.advanceTimersByTime(0)
+
+		queue.discard('SleepTimer')
+		queue.write('SleepTimer', 'SleepTimer=300000')
+		vi.advanceTimersByTime(INTERVAL)
+
+		expect(sent()).toEqual(['SleepTimer=300000'])
+	})
+})
+
 describe('BSY / RDY', () => {
 	test('holds writes while busy and sends the latest per key once ready', () => {
 		const { queue, sent } = makeQueue()

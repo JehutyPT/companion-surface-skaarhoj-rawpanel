@@ -124,6 +124,11 @@ export class PanelConnection extends EventEmitter<PanelConnectionEvents> {
 		this.#queue.write(key, line)
 	}
 
+	/** Drop the command still queued for `key`, if any. One already sent stays sent. */
+	discard(key: string): void {
+		this.#queue.discard(key)
+	}
+
 	/** Forget what was sent, so the next writes go out even if unchanged (the panel blanked itself). */
 	resetDiffs(): void {
 		this.#queue.resetDiffs()

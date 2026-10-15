@@ -32,6 +32,10 @@ export class FakeConnection extends EventEmitter<PanelConnectionEvents> implemen
 		this.writes.push([key, line])
 	}
 
+	discard(_key: string): void {
+		// Nothing is queued here: writes are recorded as they are made
+	}
+
 	resetDiffs(): void {
 		this.resetDiffsCalls++
 	}

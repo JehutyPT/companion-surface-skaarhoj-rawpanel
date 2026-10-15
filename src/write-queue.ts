@@ -68,6 +68,11 @@ export class WriteQueue {
 		}
 	}
 
+	/** Drop the line still pending for `key`, if any. A line already sent stays sent. */
+	discard(key: string): void {
+		this.#pending.delete(key)
+	}
+
 	/** Forget what was sent, so the next writes go out even if unchanged (the panel blanked itself). */
 	resetDiffs(): void {
 		this.#lastSent.clear()

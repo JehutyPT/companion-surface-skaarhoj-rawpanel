@@ -98,10 +98,14 @@ export class RawPanelSurface implements SurfaceInstance {
 	async updateConfig(config: Record<string, any>): Promise<void> {
 		if (this.#closed) return
 		const { panel, analog } = parseSurfaceSettings(config, this.#axes)
+		const before = settingCommands(this.#settings, this.#brightness).map((c) => c.key)
 		this.#settings = panel
 		this.#analog.configure(analog)
+		const commands = settingCommands(this.#settings, this.#brightness)
+		// A setting opted out of before its line went out is never sent; one already sent stays (ADR 0004).
+		this.#link.discard(before.filter((key) => !commands.some((c) => c.key === key)))
 		// Diffed per command, so only a changed setting goes out
-		this.#link.write(settingCommands(this.#settings, this.#brightness))
+		this.#link.write(commands)
 	}
 
 	async ready(): Promise<void> {

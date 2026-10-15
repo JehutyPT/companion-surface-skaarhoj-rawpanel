@@ -30,6 +30,7 @@ export interface LinkConnection {
 	start(): void
 	stop(): void
 	write(key: string, line: string): void
+	discard(key: string): void
 	resetDiffs(): void
 	on<E extends keyof PanelConnectionEvents>(event: E, listener: (...args: PanelConnectionEvents[E]) => void): unknown
 }
@@ -196,6 +197,11 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 
 	write(commands: PanelCommand[]): void {
 		for (const command of commands) this.#connection.write(command.key, command.line)
+	}
+
+	/** Drop the commands still queued for `keys`; any already sent stay sent. */
+	discard(keys: string[]): void {
+		for (const key of keys) this.#connection.discard(key)
 	}
 
 	#resetRejections(): void {
