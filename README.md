@@ -17,7 +17,7 @@ A [Bitfocus Companion](https://bitfocus.io/companion) surface plugin that makes 
 
 Once published, the plugin installs from Companion's surface store. Until then, download the `.tgz` from a [GitHub release](https://github.com/JehutyPT/companion-surface-skaarhoj-rawpanel/releases) and import it into Companion, or build one with `yarn package` (see Development). Setup and settings are in [HELP.md](./companion/HELP.md).
 
-Use one Companion integration per panel: don't run this plugin and SKAARHOJ's own Companion connection module against the same panel at once. The panel has one command queue shared by every client, so two integrations writing to it slow each other down. Other apps that only read the panel, such as a PTZ joystick bridge, are fine.
+Use one Companion integration per panel: don't run this plugin and SKAARHOJ's own Companion connection module against the same panel at once. The panel has one command queue shared by every client, so two integrations writing to it slow each other down.
 
 See [HELP.md](./companion/HELP.md) and [LICENSE](./LICENSE).
 
