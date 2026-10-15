@@ -121,6 +121,45 @@ describe('analog values', () => {
 		])
 	})
 
+	test('values the panel reports between init() and ready() reach Companion at ready(): a rocker back at 0 sends 0, a fader its latest value', async () => {
+		harness = new Harness({
+			topology: {
+				HWc: [
+					{ id: 1, x: 100, y: 100, txt: 'One', type: 1 },
+					{ id: 4, x: 300, y: 100, txt: 'Rocker', type: 2 },
+					{ id: 5, x: 500, y: 100, txt: 'Fader', type: 3 },
+				],
+				typeIndex: {
+					'1': { w: 100, in: 'b', out: 'rgb' },
+					'2': { w: 100, in: 'ir' },
+					'3': { w: 100, in: 'av' },
+				},
+			},
+		})
+		await harness.start()
+		await harness.connect()
+		const info = await harness.waitForAnnouncements()
+		const context = new FakeSurfaceContext()
+		const result = await harness.plugin.openSurface(info.surfaceId, info.pluginInfo, context)
+		harness.opened.push(result)
+		await result.surface.init()
+
+		// The key press comes last on the same connection, so once it arrives the analog lines have too
+		harness.panel.send('HWC#4=Speed:0', 'HWC#5=Abs:300', 'HWC#5=Abs:700', 'HWC#1=Down')
+		await waitFor(() => context.calls.some((c) => c[0] === 'keyDown'))
+		// Past the send interval: nothing still queued may land after ready() and pass for it
+		await sleep(80)
+		const beforeReady = context.calls.length
+
+		await result.surface.ready()
+
+		// 700 scaled past the default dead zone: 1000 * 694 / 994 = 698.2
+		expect(variables(context.calls.slice(beforeReady))).toEqual([
+			['variable', 'hwc_4', 0],
+			['variable', 'hwc_5', 698],
+		])
+	})
+
 	test('a deflected axis returns to 0 when the link drops, so nothing keeps moving', async () => {
 		harness = new Harness({ topology: ptzExtremeTopology })
 		const { context, panel } = await harness.connectAndOpen()

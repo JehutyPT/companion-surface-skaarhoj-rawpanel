@@ -45,8 +45,9 @@ function tuning(axes: Record<number, Partial<AxisTuning>> = {}, intervalMs = DEF
 }
 
 /**
- * A sender with a recording send callback and a lock switch. `ready` (the default) puts the axes at
- * rest and lets the send interval pass, as the surface does on `ready()`, then clears what was sent.
+ * A sender with a recording send callback and a lock switch. `ready` (the default) starts it, which
+ * puts the axes at rest, as the surface does on `ready()`, lets the send interval pass, then clears
+ * what was sent.
  */
 function setup(options: { axes?: AnalogAxis[]; tuning?: AnalogTuning; ready?: boolean } = {}) {
 	const sent: [string, number][] = []
@@ -58,7 +59,7 @@ function setup(options: { axes?: AnalogAxis[]; tuning?: AnalogTuning; ready?: bo
 	)
 	if (options.tuning) sender.configure(options.tuning)
 	if (options.ready ?? true) {
-		sender.rest()
+		sender.start()
 		vi.advanceTimersByTime(PAST_INTERVAL_MS)
 		sent.length = 0
 	}
@@ -369,7 +370,7 @@ describe('rest', () => {
 	test('intensity axes start at rest: each sends 0, in HWC order; a fader has no rest position', () => {
 		const { sender, sent } = setup({ axes: [fader, ...ptzAxes], ready: false })
 
-		sender.rest()
+		sender.start()
 
 		expect(sent).toEqual([
 			['hwc_58', 0],
@@ -405,6 +406,43 @@ describe('rest', () => {
 
 		expect(sent).toEqual([
 			['hwc_60', 100],
+			['hwc_60', 0],
+		])
+	})
+})
+
+describe('start', () => {
+	test('nothing is sent before start; at start each axis sends its latest value, an intensity axis with none 0', () => {
+		const { sender, sent } = setup({ axes: [fader, speedAxis(58), speedAxis(60), speedAxis(61)], ready: false })
+		sender.input(5, 300)
+		sender.input(5, 700)
+		sender.input(58, 2)
+		sender.input(60, -300)
+		vi.advanceTimersByTime(PAST_INTERVAL_MS)
+		expect(sent).toEqual([])
+
+		sender.start()
+
+		// Scaled past the default dead zone: 1000 * 694 / 994 = 698.2 and -500 * 294 / 494 = -297.6
+		expect(sent).toEqual([
+			['hwc_5', 698],
+			['hwc_58', 0],
+			['hwc_60', -298],
+			['hwc_61', 0],
+		])
+	})
+
+	test('a rest before start puts intensity axes at 0 for start; a fader keeps its latest value', () => {
+		const { sender, sent } = setup({ axes: [fader, speedAxis(60)], ready: false })
+		sender.input(5, 700)
+		sender.input(60, -300)
+
+		sender.rest()
+		expect(sent).toEqual([])
+		sender.start()
+
+		expect(sent).toEqual([
+			['hwc_5', 698],
 			['hwc_60', 0],
 		])
 	})
@@ -472,10 +510,10 @@ describe('enabling and disabling an axis', () => {
 		expect(sent).toEqual([['hwc_60', 0]])
 	})
 
-	test('a disabled axis is not put at rest by the first rest, when nothing was sent yet', () => {
+	test('a disabled axis is not put at rest at start, when nothing was sent yet', () => {
 		const { sender, sent } = setup({ ready: false, tuning: tuning({ 58: { enabled: false }, 61: { enabled: false } }) })
 
-		sender.rest()
+		sender.start()
 
 		expect(sent.map(([id]) => id)).toEqual(['hwc_60', 'hwc_62'])
 	})
@@ -504,7 +542,6 @@ describe('enabling and disabling an axis', () => {
 		const { sender, sent } = setup({
 			axes: [speedAxis(60), speedAxis(61)],
 			tuning: tuning({ 60: { enabled: false }, 61: { enabled: false } }),
-			ready: false,
 		})
 
 		for (let v = -500; v <= 500; v += 10) {

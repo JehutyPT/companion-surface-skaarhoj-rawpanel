@@ -77,6 +77,8 @@ interface AxisState {
 	lastSentAt: number
 	pending: number | undefined
 	timer: NodeJS.Timeout | undefined
+	/** Before `start()`: the latest raw value from the panel, sent at `start()` */
+	beforeStart: number | undefined
 }
 
 /**
@@ -92,6 +94,7 @@ export class AnalogSender {
 	readonly #send: (variableId: string, value: number) => void
 	readonly #isLocked: () => boolean
 	#tuning: Readonly<AnalogTuning> = { intervalMs: DEFAULT_ANALOG_INTERVAL_MS, axes: {} }
+	#started = false
 	#stopped = false
 
 	constructor(axes: AnalogAxis[], send: (variableId: string, value: number) => void, isLocked: () => boolean) {
@@ -104,6 +107,7 @@ export class AnalogSender {
 				lastSentAt: -Infinity,
 				pending: undefined,
 				timer: undefined,
+				beforeStart: undefined,
 			})
 		}
 	}
@@ -130,6 +134,11 @@ export class AnalogSender {
 	input(hwc: number, raw: number): void {
 		const state = this.#byHwc.get(hwc)
 		if (!state || this.#stopped || !this.#isEnabled(state)) return
+		if (!this.#started) {
+			// Companion drops values sent before it registers the surface: keep the latest for start()
+			state.beforeStart = raw
+			return
+		}
 		const mode = state.axis.mode
 		const { intervalMs } = this.#tuning
 		const tuning = this.#tuning.axes[hwc] ?? defaultAxisTuning(mode)
@@ -169,12 +178,34 @@ export class AnalogSender {
 	}
 
 	/**
+	 * Companion has registered the surface (`ready()`): from now on values are sent. Each enabled axis
+	 * sends its current value: the latest the panel reported before now, or, for an intensity axis
+	 * that reported none (or none Companion may have while locked), its rest value 0.
+	 */
+	start(): void {
+		if (this.#started || this.#stopped) return
+		this.#started = true
+		for (const state of this.#byHwc.values()) {
+			const reported = state.beforeStart
+			state.beforeStart = undefined
+			if (!this.#isEnabled(state)) continue
+			if (reported !== undefined) this.input(state.axis.hwc, reported)
+			if (state.lastSent === undefined) this.#putAtRest(state, true)
+		}
+	}
+
+	/**
 	 * Put every enabled intensity axis (joystick, rocker) at rest: drop queued values and send 0 where
 	 * Companion has anything else. Absolute axes (faders) keep their value. Disabled axes were put at
-	 * rest when they were disabled and send nothing more.
+	 * rest when they were disabled and send nothing more. Before `start()`, nothing is sent: an
+	 * intensity axis forgets the value it reported, so it sends 0 at `start()`.
 	 */
 	rest(): void {
 		if (this.#stopped) return
+		if (!this.#started) {
+			for (const state of this.#byHwc.values()) if (state.axis.mode === 'Speed') state.beforeStart = undefined
+			return
+		}
 		for (const state of this.#byHwc.values()) {
 			if (this.#isEnabled(state)) this.#putAtRest(state, true)
 		}
