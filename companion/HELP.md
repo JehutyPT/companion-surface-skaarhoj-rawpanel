@@ -4,7 +4,7 @@ Use a SKAARHOJ Raw Panel as a Companion surface. Needs Companion 5.1 or later.
 
 Built and tested on the SK_PTZEXTREMEV2. Other Raw Panels may work, since the layout comes from the panel, but they are untested.
 
-This plugin is in development. This page grows as features ship.
+Use one Companion integration per panel: don't run this plugin and SKAARHOJ's own Companion connection module against the same panel at once. They share the panel's one command queue and slow each other down.
 
 ### Setup
 
