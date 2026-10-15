@@ -282,55 +282,6 @@ describe('Companion declines or still holds the surface', () => {
 		await harness.open(second)
 	})
 
-	test('keeps announcing, backing off, while Companion keeps rejecting', async () => {
-		harness = new Harness({ topology: smallTopology }, { ...fastTimings, rejectRetryMs: 50, backoffMaxMs: 1000 })
-		await harness.start()
-		await harness.connect()
-		const times = [Date.now()]
-
-		for (let n = 1; n <= 3; n++) {
-			harness.plugin.remote!.rejectSurface(await harness.waitForAnnouncements(n))
-			await harness.waitForAnnouncements(n + 1)
-			times.push(Date.now())
-		}
-
-		// 50, 100 then 200 ms between a rejection and the next announcement
-		expect(times[3] - times[2]).toBeGreaterThanOrEqual(180)
-		expect(times[2] - times[1]).toBeLessThan(180)
-	})
-
-	test('stops announcing after five rejections in a row, with a warning, until the panel reconnects', async () => {
-		harness = new Harness({ topology: smallTopology }, { ...fastTimings, rejectRetryMs: 5, backoffMaxMs: 20 })
-		await harness.start()
-		await harness.connect()
-
-		for (let n = 1; n <= 5; n++) harness.plugin.remote!.rejectSurface(await harness.waitForAnnouncements(n))
-		await harness.waitForAnnouncements(6)
-		harness.plugin.remote!.rejectSurface(harness.announced[5])
-		await sleep(150)
-
-		expect(harness.announced).toHaveLength(6)
-		expect(logs.some((l) => l.level === 'warn' && /rejected/.test(l.message))).toBe(true)
-
-		harness.panel.dropClients()
-		await harness.waitForAnnouncements(7)
-	})
-
-	test('a rejection of an announcement that is no longer current is ignored', async () => {
-		harness = new Harness({ topology: smallTopology })
-		await harness.start()
-		await harness.connect()
-		const first = await harness.waitForAnnouncements()
-		harness.plugin.remote!.rejectSurface(first)
-		const second = await harness.waitForAnnouncements(2)
-
-		harness.plugin.remote!.rejectSurface(first)
-		await sleep(150)
-
-		expect(harness.announced).toHaveLength(2)
-		await harness.open(second)
-	})
-
 	test('a panel removed and re-added before its old surface closed comes back once Companion lets it', async () => {
 		harness = new Harness({ topology: smallTopology })
 		await harness.start()

@@ -6,7 +6,6 @@
 import { createModuleLogger, type ModuleLogger } from '@companion-surface/base'
 import EventEmitter from 'node:events'
 import net from 'node:net'
-import { performance } from 'node:perf_hooks'
 import { parseLine, type PanelEvent } from './protocol.js'
 import { parseTopology, type Topology } from './topology.js'
 
@@ -29,8 +28,6 @@ export interface ConnectionTimings {
 	writeBurst: number
 	/** Resume writing this long after `BSY` if neither `RDY` nor a panel `ping` has arrived */
 	busyTimeoutMs: number
-	/** First delay before announcing the surface again after Companion rejects it; doubles up to `backoffMaxMs` */
-	rejectRetryMs: number
 }
 
 export const DEFAULT_TIMINGS: ConnectionTimings = {
@@ -43,7 +40,6 @@ export const DEFAULT_TIMINGS: ConnectionTimings = {
 	writeIntervalMs: 20,
 	writeBurst: 8,
 	busyTimeoutMs: 1000,
-	rejectRetryMs: 1000,
 }
 
 /** Longest inbound line accepted. Topology lines are tens of kB. */

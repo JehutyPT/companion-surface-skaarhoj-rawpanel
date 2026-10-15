@@ -44,7 +44,7 @@ The user's optional `<hwc>=<row>/<column>` overrides of the layout, a connection
 _Avoid_: custom layout
 
 **Link**:
-One panel at one `address:port` (`PanelLink`): it owns the connection and decides when Companion is told about the surface, absorbing reconnects to the same panel and layout.
+One panel at one `address:port` (`PanelLink`): it drives its connection and decides when Companion is told about the surface, absorbing reconnects to the same panel and layout.
 _Avoid_: session
 
 **Connection**:

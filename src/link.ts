@@ -1,5 +1,5 @@
 /**
- * A PanelLink is one panel at one `address:port`: it owns the connection and decides when
+ * A PanelLink is one panel at one `address:port`: it drives the connection it is given and decides when
  * Companion is told about the surface. The surface is announced once per link; reconnects with the
  * same panel and layout are absorbed here (the open surface re-pushes its state), and only a
  * changed panel or layout replaces the surface. If Companion rejects an announcement (typically
@@ -9,7 +9,7 @@
 import { createModuleLogger, type DetectionSurfaceInfo, type ModuleLogger } from '@companion-surface/base'
 import { randomUUID } from 'node:crypto'
 import EventEmitter from 'node:events'
-import { DEFAULT_TIMINGS, PanelConnection, type ConnectionTimings, type PanelIdentity } from './connection.js'
+import type { PanelConnectionEvents, PanelIdentity } from './connection.js'
 import type { ControlMap } from './control-map.js'
 import type { PanelCommand, PanelEvent } from './protocol.js'
 import { buildLayout, type PanelLayout, type Topology } from './topology.js'
@@ -20,6 +20,31 @@ import { buildLayout, type PanelLayout, type Topology } from './topology.js'
  * declined, or two connections reaching the same panel) then stops until the panel reconnects.
  */
 const MAX_REJECT_RETRIES = 5
+
+/**
+ * What the link uses of its connection (see `PanelConnection` for the contract of each member).
+ * Production passes the TCP `PanelConnection`; link tests pass an in-memory one.
+ */
+export interface LinkConnection {
+	readonly isOnline: boolean
+	start(): void
+	stop(): void
+	write(key: string, line: string): void
+	resetDiffs(): void
+	on<E extends keyof PanelConnectionEvents>(event: E, listener: (...args: PanelConnectionEvents[E]) => void): unknown
+}
+
+export interface LinkTimings {
+	/** First delay before announcing the surface again after Companion rejects it; doubles per rejection */
+	rejectRetryMs: number
+	/** Cap on that delay (the default matches the connection's reconnect backoff cap) */
+	rejectRetryMaxMs: number
+}
+
+export const DEFAULT_LINK_TIMINGS: LinkTimings = {
+	rejectRetryMs: 1000,
+	rejectRetryMaxMs: 30000,
+}
 
 export interface RawPanelDeviceInfo {
 	link: PanelLink
@@ -45,10 +70,10 @@ export interface PanelSurfaceHandle {
 export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	readonly address: string
 	readonly port: number
-	readonly #connection: PanelConnection
+	readonly #connection: LinkConnection
 	readonly #announce: (info: DetectionSurfaceInfo<RawPanelDeviceInfo>) => void
 	readonly #logger: ModuleLogger
-	readonly #timings: ConnectionTimings
+	readonly #timings: LinkTimings
 	readonly #loggedUnknown = new Set<string>()
 	readonly #controlMap: ControlMap
 	readonly #loggedMapNotes = new Set<string>()
@@ -65,21 +90,22 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 	#rejections = 0
 
 	constructor(
+		connection: LinkConnection,
 		address: string,
 		port: number,
-		timings: Partial<ConnectionTimings>,
 		announce: (info: DetectionSurfaceInfo<RawPanelDeviceInfo>) => void,
 		controlMap: ControlMap = new Map(),
+		timings: Partial<LinkTimings> = {},
 	) {
 		super()
 		this.address = address
 		this.port = port
 		this.#controlMap = controlMap
 		this.#announce = announce
-		this.#timings = { ...DEFAULT_TIMINGS, ...timings }
+		this.#timings = { ...DEFAULT_LINK_TIMINGS, ...timings }
 		this.#rejectRetryMs = this.#timings.rejectRetryMs
 		this.#logger = createModuleLogger(`Link/${address}:${port}`)
-		this.#connection = new PanelConnection(address, port, this.#timings)
+		this.#connection = connection
 		this.#connection.on('online', (identity) => this.#onOnline(identity))
 		this.#connection.on('offline', () => this.emit('offline'))
 		this.#connection.on('event', (event) => {
@@ -144,7 +170,7 @@ export class PanelLink extends EventEmitter<PanelLinkEvents> {
 			return
 		}
 		const delay = this.#rejectRetryMs
-		this.#rejectRetryMs = Math.min(delay * 2, this.#timings.backoffMaxMs)
+		this.#rejectRetryMs = Math.min(delay * 2, this.#timings.rejectRetryMaxMs)
 		this.#logger.info(`Companion rejected surface ${this.#surfaceId}; announcing it again in ${delay} ms`)
 		clearTimeout(this.#rejectTimer)
 		this.#rejectTimer = setTimeout(() => {

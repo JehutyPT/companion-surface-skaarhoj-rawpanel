@@ -1,6 +1,7 @@
 import type { DetectionSurfaceInfo, OpenSurfaceResult, SurfacePlugin } from '@companion-surface/base'
 import { createRawPanelPlugin, type RawPanelDeviceInfo } from '../../main.js'
 import type { ConnectionTimings } from '../../connection.js'
+import type { LinkTimings } from '../../link.js'
 import { FakeRawPanel, waitFor, type FakePanelOptions } from './fake-panel.js'
 import { FakeSurfaceContext } from './fake-context.js'
 
@@ -15,7 +16,12 @@ export const fastTimings: Partial<ConnectionTimings> = {
 	writeIntervalMs: 2,
 	writeBurst: 50,
 	busyTimeoutMs: 300,
+}
+
+/** Short link timings so a rejected surface is announced again within a test. */
+export const fastLinkTimings: Partial<LinkTimings> = {
 	rejectRetryMs: 20,
+	rejectRetryMaxMs: 200,
 }
 
 /**
@@ -31,7 +37,7 @@ export class Harness {
 
 	constructor(panelOptions: FakePanelOptions = {}, timings: Partial<ConnectionTimings> = fastTimings) {
 		this.panel = new FakeRawPanel(panelOptions)
-		this.plugin = createRawPanelPlugin({ timings })
+		this.plugin = createRawPanelPlugin({ timings, linkTimings: fastLinkTimings })
 		this.plugin.remote!.on('surfacesConnected', (infos) => this.announced.push(...infos))
 	}
 

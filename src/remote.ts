@@ -7,9 +7,9 @@ import {
 	type SurfacePluginRemoteEvents,
 } from '@companion-surface/base'
 import EventEmitter from 'node:events'
-import type { ConnectionTimings } from './connection.js'
+import { PanelConnection, type ConnectionTimings } from './connection.js'
 import { formatControlMap, parseControlMap } from './control-map.js'
-import { PanelLink, type RawPanelDeviceInfo } from './link.js'
+import { PanelLink, type LinkTimings, type RawPanelDeviceInfo } from './link.js'
 
 export const DEFAULT_TCP_PORT = 9923
 
@@ -32,6 +32,7 @@ export class RawPanelPluginRemoteService
 {
 	readonly #logger = createModuleLogger('RemoteService')
 	readonly #timings: Partial<ConnectionTimings>
+	readonly #linkTimings: Partial<LinkTimings>
 
 	/** connectionId -> address:port key */
 	readonly #activeConnections = new Map<string, string>()
@@ -42,9 +43,10 @@ export class RawPanelPluginRemoteService
 	/** Announcements made before init() resolved; emitting them earlier would lose them */
 	readonly #queued: DetectionSurfaceInfo<RawPanelDeviceInfo>[] = []
 
-	constructor(timings: Partial<ConnectionTimings> = {}) {
+	constructor(timings: Partial<ConnectionTimings> = {}, linkTimings: Partial<LinkTimings> = {}) {
 		super()
 		this.#timings = timings
+		this.#linkTimings = linkTimings
 	}
 
 	readonly configFields: SomeCompanionInputField[] = [
@@ -114,7 +116,15 @@ export class RawPanelPluginRemoteService
 			if (entry) {
 				entry.refs++
 			} else {
-				const link = new PanelLink(address, port, this.#timings, (surface) => this.#announce(surface), map)
+				const connection = new PanelConnection(address, port, this.#timings)
+				const link = new PanelLink(
+					connection,
+					address,
+					port,
+					(surface) => this.#announce(surface),
+					map,
+					this.#linkTimings,
+				)
 				this.#links.set(key, { link, refs: 1 })
 				link.start()
 			}
