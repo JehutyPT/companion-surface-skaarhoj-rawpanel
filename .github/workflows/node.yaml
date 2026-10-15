@@ -34,6 +34,11 @@ jobs:
           yarn build
         env:
           CI: true
+      - name: Typecheck sources and tests
+        run: |
+          yarn typecheck
+        env:
+          CI: true
       - name: Run lint
         run: |
           yarn lint
