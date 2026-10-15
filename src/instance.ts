@@ -118,11 +118,13 @@ export class RawPanelSurface implements SurfaceInstance {
 	}
 
 	async blank(): Promise<void> {
+		if (this.#closed) return
 		for (const id of this.#state.keys()) this.#state.set(id, OFF)
 		this.#pushAll()
 	}
 
 	async draw(_signal: AbortSignal, drawProps: SurfaceDrawProps): Promise<void> {
+		if (this.#closed) return
 		const control = this.#byId.get(drawProps.controlId)
 		if (!control) return
 		const state: ControlState = {

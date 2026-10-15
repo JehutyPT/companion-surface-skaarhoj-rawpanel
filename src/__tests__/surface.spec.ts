@@ -297,4 +297,17 @@ describe('closing', () => {
 		await result.surface.close()
 		await result.surface.close()
 	})
+
+	test('a closed surface writes nothing to the panel from draw or blank', async () => {
+		harness = new Harness({ topology: smallTopology })
+		const { result } = await harness.connectAndOpen()
+		await drawAndCollect(result.surface, { controlId: 'hwc/10', color: '#ff0000', text: 'CAM 1', pressed: false })
+		await result.surface.close()
+
+		expect(await drawAndCollect(result.surface, { controlId: 'hwc/1', color: '#00ff00', pressed: false })).toEqual([])
+		harness.panel.clearReceived()
+		await result.surface.blank()
+		await harness.settle()
+		expect(harness.panel.commands).toEqual([])
+	})
 })
