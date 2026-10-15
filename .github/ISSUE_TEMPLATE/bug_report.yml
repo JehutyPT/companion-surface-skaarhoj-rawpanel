@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in the plugin does not work as described in its help.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The SK_PTZEXTREMEV2 is the only tested panel. For any other panel, use the **New panel report** form.
+
+        Do not paste Companion API keys or a full Companion config export.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: companion-version
+    attributes:
+      label: Companion version
+      description: Shown in the Companion web UI, for example 5.1.0.
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: The version shown for SKAARHOJ Raw Panel among the surface integrations in Companion's Surfaces settings.
+    validations:
+      required: true
+  - type: input
+    id: panel
+    attributes:
+      label: Panel model and firmware
+      description: "Both are in the plugin's Companion log line `Connected: <model> serial <serial> <firmware>`. The serial is not needed."
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Companion log
+      description: From Companion's Log page, the lines from this plugin around the problem, from connecting to the panel up to the failure.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: topology
+    attributes:
+      label: Panel topology (optional)
+      description: |
+        Needed when a control is missing, in the wrong place or of the wrong kind. The plugin does not log it. From a computer on the panel's network, send `PanelTopology?` to the panel on TCP port 9923 with a raw TCP client and paste the `_panelTopology_HWC=` line:
+
+        `printf 'PanelTopology?\n' | nc -w 3 <panel-ip> 9923`
+      render: text

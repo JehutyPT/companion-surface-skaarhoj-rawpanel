@@ -1,0 +1,61 @@
+name: New panel report
+description: Report how the plugin works with a Raw Panel other than the SK_PTZEXTREMEV2.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Only the SK_PTZEXTREMEV2 is tested. The plugin builds its layout from the panel's topology, not from the model, so other Raw Panels may work. Support stays topology-driven: fixes go into the generic code, never into code for one model.
+
+        Do not paste Companion API keys or a full Companion config export.
+  - type: input
+    id: panel
+    attributes:
+      label: Panel model and firmware
+      description: The `_model=` and `_version=` lines from the command under Panel topology.
+    validations:
+      required: true
+  - type: input
+    id: companion-version
+    attributes:
+      label: Companion version
+      description: Shown in the Companion web UI, for example 5.1.0.
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: The version shown for SKAARHOJ Raw Panel among the surface integrations in Companion's Surfaces settings.
+    validations:
+      required: true
+  - type: textarea
+    id: topology
+    attributes:
+      label: Panel topology
+      description: |
+        The plugin does not log it. From a computer on the panel's network, send `list` and `PanelTopology?` to the panel on TCP port 9923 with a raw TCP client and paste the `_model=`, `_version=` and `_panelTopology_HWC=` lines:
+
+        `printf 'list\nPanelTopology?\n' | nc -w 3 <panel-ip> 9923`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: works
+    attributes:
+      label: What works
+      description: Buttons, encoders, LEDs, displays and analog axes that behave as expected.
+    validations:
+      required: true
+  - type: textarea
+    id: does-not-work
+    attributes:
+      label: What does not work
+      description: Controls that are missing, misplaced or misbehave, and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Companion log (optional)
+      description: From Companion's Log page, the lines from this plugin from connecting to the panel onwards.
+      render: text
