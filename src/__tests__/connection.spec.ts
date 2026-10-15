@@ -359,15 +359,17 @@ describe('connections are shared per address and port', () => {
 
 describe('flow control', () => {
 	test('holds writes while the panel is busy and sends only the latest per control on RDY', async () => {
-		harness = new Harness({ topology: smallTopology })
+		// A long busy timeout, so a slow machine cannot end the hold before the assertions
+		harness = new Harness({ topology: smallTopology }, { ...fastTimings, busyTimeoutMs: 5000 })
 		await harness.start()
 		await harness.connect()
-		const { result } = await harness.open(await harness.waitForAnnouncements())
+		const { result, context } = await harness.open(await harness.waitForAnnouncements())
 		await waitFor(() => harness!.panel.commands.includes('HWC#10=0'))
 		harness.panel.clearReceived()
 
-		harness.panel.send('BSY')
-		await sleep(30)
+		// Lines are handled in order: once the key down is in, so is the BSY (a ping would end the hold)
+		harness.panel.send('BSY', 'HWC#1=Down')
+		await waitFor(() => context.calls.some((c) => c[0] === 'keyDown'), 2000, 'the BSY to be handled')
 		const signal = new AbortController().signal
 		await result.surface.draw(signal, { controlId: 'hwc/1', color: '#ff0000', pressed: false })
 		await result.surface.draw(signal, { controlId: 'hwc/1', color: '#00ff00', pressed: false })

@@ -75,7 +75,8 @@ describe('panel settings', () => {
 		const { surface, panel } = await openSurface(defaults)
 
 		await surface.updateConfig!({ ...defaults, sleepTimer: 300000 })
-		await sleep(20)
+		await waitFor(() => settingLines(panel.commands).length > 0, 2000, 'the sleep timeout')
+		await harness!.settle()
 		expect(settingLines(panel.commands)).toEqual(['SleepTimer=300000'])
 
 		await reconnect()
@@ -95,7 +96,7 @@ describe('panel settings', () => {
 		panel.clearReceived()
 		await surface.setBrightness(100)
 		await surface.setBrightness(30)
-		await sleep(20)
+		await waitFor(() => settingLines(panel.commands).at(-1) === 'PanelBrightness=2,2', 2000, 'the brightness')
 		expect(settingLines(panel.commands).at(-1)).toBe('PanelBrightness=2,2')
 
 		await reconnect()
@@ -107,7 +108,8 @@ describe('panel settings', () => {
 		expect(settingLines(panel.commands)).toEqual([])
 
 		await surface.updateConfig!({ ...defaults, linkBrightness: true })
-		await sleep(20)
+		await waitFor(() => settingLines(panel.commands).length > 0, 2000, 'the brightness')
+		await harness!.settle()
 		expect(settingLines(panel.commands)).toEqual(['PanelBrightness=6,6'])
 
 		panel.clearReceived()
@@ -125,9 +127,12 @@ describe('panel settings', () => {
 		async function whileBusy(surface: Awaited<ReturnType<typeof openSurface>>['surface'], change: () => Promise<void>) {
 			const panel = harness!.panel
 			panel.clearReceived()
-			panel.send('BSY')
-			// The panel acknowledges nothing for BSY; give the plugin time to read it, as the flow-control tests do
-			await sleep(30)
+			// The panel acknowledges nothing for BSY. Lines are handled in order, so once a key press sent
+			// after it reaches Companion, the BSY has been read (a ping would end the hold)
+			const context = harness!.contexts[harness!.contexts.length - 1]
+			const keys = context.calls.length
+			panel.send('BSY', `HWC#${led.hwc}=Down`, `HWC#${led.hwc}=Up`)
+			await waitFor(() => context.calls.length >= keys + 2, 2000, 'the BSY to be read')
 			await change()
 			// A marker queued last, so its arrival shows the queue flushed after RDY
 			await surface.draw(signal, { controlId: led.controlId, color: '#ff0000', pressed: false })

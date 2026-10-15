@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'vitest'
 import { validateSurfaceLayout, type SurfaceInstance } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
-import { sleep, waitFor } from './helpers/timing.js'
+import { waitFor } from './helpers/timing.js'
 import type { FakeSurfaceContext } from './helpers/fake-context.js'
 import { ptzExtremeLayoutHwcs, ptzExtremeTopology, smallTopology } from './fixtures/topologies.js'
 import { layoutOf } from './helpers/layout.js'
@@ -166,10 +166,8 @@ describe('input', () => {
 	async function openWithInput(topology: unknown = smallTopology) {
 		harness = new Harness({ topology })
 		const opened = await harness.connectAndOpen()
-		const send = async (...lines: string[]) => {
-			opened.panel.send(...lines)
-			await sleep(30)
-		}
+		// Returns once the plugin has handled every line (a ping/ack barrier), not after a fixed wait
+		const send = async (...lines: string[]) => opened.panel.sendAndSync(...lines)
 		return { ...opened, send }
 	}
 
@@ -246,6 +244,8 @@ describe('input', () => {
 		const { context, send } = await openWithInput()
 
 		await send('HWC#11=Abs:500', 'HWC#12=Down', 'HWC#99=Down', 'nack', 'map=1:1', 'HWC#1=Sideways')
+		// An analog value may be held for the rest of a send interval
+		await waitFor(() => context.calls.length > 0, 2000, 'the analog value')
 
 		// 500 scaled past the default dead zone of 6: 1000 * 494 / 994 = 497
 		expect(context.calls).toEqual([['variable', 'hwc_11', 497]])
@@ -282,8 +282,7 @@ describe('input', () => {
 		const context = new FakeSurfaceContext()
 		const result = await harness.plugin.openSurface(info.surfaceId, info.pluginInfo, context)
 
-		harness.panel.send('HWC#1=Down')
-		await sleep(30)
+		await harness.panel.sendAndSync('HWC#1=Down')
 		expect(context.calls).toEqual([])
 		await result.surface.close()
 	})

@@ -1,4 +1,5 @@
 import net from 'node:net'
+import { waitFor } from './timing.js'
 
 export interface FakePanelOptions {
 	/** Reply to `list`. Lines without the trailing newline. */
@@ -34,6 +35,15 @@ export const PTZ_EXTREME_LIST_REPLY = [
 interface Client {
 	socket: net.Socket
 	lines: string[]
+	/** Set while a chunked reply is being written: other writes wait here, so none lands inside its lines. */
+	held?: string[]
+}
+
+/** Write `data` to the client, or hold it until a chunked reply in progress has been written. */
+function writeTo(client: Client, data: string): void {
+	if (client.socket.destroyed) return
+	if (client.held) client.held.push(data)
+	else client.socket.write(data)
 }
 
 /**
@@ -83,9 +93,9 @@ export class FakeRawPanel {
 		return this.#clients[this.#clients.length - 1]?.lines ?? []
 	}
 
-	/** Lines received from the latest client, excluding the connection chatter (`list`, `PanelTopology?`, `ping`). */
+	/** Lines received from the latest client, excluding the connection chatter (`list`, `PanelTopology?`, `ping`, `ack`). */
 	get commands(): string[] {
-		return this.receivedOnLatest.filter((l) => l !== 'ping' && l !== 'list' && l !== 'PanelTopology?')
+		return this.receivedOnLatest.filter((l) => l !== 'ping' && l !== 'ack' && l !== 'list' && l !== 'PanelTopology?')
 	}
 
 	clearReceived(): void {
@@ -98,9 +108,7 @@ export class FakeRawPanel {
 
 	/** Send lines to every open client. */
 	send(...lines: string[]): void {
-		for (const client of this.#clients) {
-			if (!client.socket.destroyed) client.socket.write(lines.map((l) => l + '\n').join(''))
-		}
+		for (const client of this.#clients) writeTo(client, lines.map((l) => l + '\n').join(''))
 	}
 
 	/** Write `data` to every open client as is, with no newline added: for lines split across writes. */
@@ -108,6 +116,17 @@ export class FakeRawPanel {
 		for (const client of this.#clients) {
 			if (!client.socket.destroyed) client.socket.write(data)
 		}
+	}
+
+	/**
+	 * Send `lines`, then a `ping`, and wait for the plugin's `ack`. The plugin handles lines in order,
+	 * so once the ack is back every line before it has been handled. Note: a ping also ends a BSY hold.
+	 */
+	async sendAndSync(...lines: string[]): Promise<void> {
+		const acks = () => this.receivedOnLatest.filter((l) => l === 'ack').length
+		const before = acks()
+		this.send(...lines, 'ping')
+		await waitFor(() => acks() > before, 2000, 'the ack after the sent lines')
 	}
 
 	/** Drop every client connection, as if the panel rebooted or the cable was pulled. */
@@ -131,15 +150,14 @@ export class FakeRawPanel {
 				const line = buffer.slice(0, index).replace(/\r$/, '')
 				buffer = buffer.slice(index + 1)
 				client.lines.push(line)
-				this.#reply(socket, line)
+				this.#reply(client, line)
 			}
 		})
 	}
 
-	#reply(socket: net.Socket, line: string): void {
-		const write = (lines: string[]) => {
-			if (!socket.destroyed) socket.write(lines.map((l) => l + '\n').join(''))
-		}
+	#reply(client: Client, line: string): void {
+		const { socket } = client
+		const write = (lines: string[]) => writeTo(client, lines.map((l) => l + '\n').join(''))
 		if (line === 'ping') {
 			if (!this.options.answerPings) return
 			if (this.options.ackDelayMs > 0) setTimeout(() => write(['ack']), this.options.ackDelayMs)
@@ -152,11 +170,18 @@ export class FakeRawPanel {
 				typeof this.options.topology === 'string' ? this.options.topology : JSON.stringify(this.options.topology)
 			const reply = `_panelTopology_svgbase=${this.options.svgbase}\n_panelTopology_HWC=${json}\n`
 			if (this.options.chunkSize <= 0) {
-				if (!socket.destroyed) socket.write(reply)
+				writeTo(client, reply)
 				return
 			}
+			// Like the real panel, nothing else (an `ack`, a test's line) goes out in the middle of the reply
+			const held: string[] = (client.held ??= [])
 			const sendFrom = (offset: number): void => {
-				if (socket.destroyed || offset >= reply.length) return
+				if (socket.destroyed) return
+				if (offset >= reply.length) {
+					client.held = undefined
+					for (const data of held) socket.write(data)
+					return
+				}
 				socket.write(reply.slice(offset, offset + this.options.chunkSize))
 				setImmediate(() => sendFrom(offset + this.options.chunkSize))
 			}

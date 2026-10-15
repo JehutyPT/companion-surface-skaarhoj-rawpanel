@@ -184,10 +184,9 @@ describe('analog values', () => {
 		context.calls.length = 0
 		context.locked = true
 
-		panel.send('HWC#61=Speed:200')
-		await sleep(70)
-		panel.send('HWC#60=Speed:0')
-		await sleep(70)
+		// The ignored move is handled before the return to centre, which is sent at once or after an interval
+		await panel.sendAndSync('HWC#61=Speed:200', 'HWC#60=Speed:0')
+		await waitFor(() => variables(context.calls).length >= 1, 2000, 'the return to centre')
 
 		expect(variables(context.calls)).toEqual([['variable', 'hwc_60', 0]])
 	})
@@ -216,9 +215,9 @@ describe('analog tuning (surface settings)', () => {
 		context.calls.length = 0
 
 		panel.send('HWC#60=Speed:2')
-		await sleep(30)
+		await waitFor(() => variables(context.calls).length >= 1, 2000, 'the first value')
 		panel.send('HWC#60=Speed:450')
-		await sleep(30)
+		await waitFor(() => variables(context.calls).length >= 2, 2000, 'the second value')
 
 		expect(variables(context.calls)).toEqual([
 			['variable', 'hwc_60', 3],
