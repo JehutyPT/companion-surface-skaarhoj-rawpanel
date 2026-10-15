@@ -2,7 +2,7 @@
 
 A [Bitfocus Companion](https://bitfocus.io/companion) surface plugin that makes a SKAARHOJ Raw Panel a Companion surface over the Raw Panel TCP protocol: buttons, encoders, LEDs and display text, with analog controls (joysticks, rockers, faders) as input variables. Needs Companion 5.1+.
 
-**Supported hardware:** built and tested on the SK_PTZEXTREMEV2, with a starter preset page in [presets/ptz-extreme.companionconfig](./presets/ptz-extreme.companionconfig) (import steps and the custom variables it needs are in [HELP.md](./companion/HELP.md#ptz-extreme-preset-page)). The layout comes from the panel's own topology report, so other Raw Panels may work, but they are untested. Issues and PRs for other panels are welcome.
+**Supported hardware:** built and tested on the SK_PTZEXTREMEV2, with a starter preset page in [presets/ptz-extreme.companionconfig](./presets/ptz-extreme.companionconfig) (import steps and the custom variables it needs are in [HELP.md](./companion/HELP.md#ptz-extreme-preset-page)). The layout comes from the panel's own topology report, so other Raw Panels may work, but they are untested. Issues and PRs for other panels are welcome: see [CONTRIBUTING.md](./CONTRIBUTING.md#other-panels).
 
 ## Features
 
@@ -23,6 +23,7 @@ See [HELP.md](./companion/HELP.md) and [LICENSE](./LICENSE).
 
 ## Docs
 
+- [CONTRIBUTING.md](./CONTRIBUTING.md): setup, tests and how to contribute.
 - [AGENTS.md](./AGENTS.md): scope, rules, versions and conventions.
 - [docs/architecture.md](./docs/architecture.md): which module owns what, and where to make common changes.
 - [docs/raw-panel-protocol.md](./docs/raw-panel-protocol.md): the Raw Panel protocol.
@@ -36,11 +37,7 @@ Requires Node 22.21+ and Yarn 4 via corepack.
 ```sh
 corepack enable
 yarn install
-yarn build   # or `yarn dev` to rebuild on change
-yarn lint
 yarn test
 ```
 
-To load the dev build into Companion, point Companion's developer modules folder at the **parent** of this repo's folder, enable developer modules, then add the surface integration and a Remote Surface connection. Details in [docs/surface-api-notes.md](./docs/surface-api-notes.md#loading-a-dev-build-into-companion).
-
-`yarn package` builds a `.tgz` that can be imported into Companion offline.
+Scripts, tests, the fake panel and how to report a new panel are in [CONTRIBUTING.md](./CONTRIBUTING.md). To load a dev build into Companion, see [docs/surface-api-notes.md](./docs/surface-api-notes.md#loading-a-dev-build-into-companion). `yarn package` builds a `.tgz` that can be imported into Companion offline.
