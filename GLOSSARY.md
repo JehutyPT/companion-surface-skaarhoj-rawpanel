@@ -21,7 +21,10 @@ How the plugin treats an HWC, classified from its topology `in` type: button, en
 _Avoid_: control type (that is the topology's `type`)
 
 **Four-way button**:
-A multi-edge button (`b2h`, `b2v`, `b4`) that acts as one key: any edge down is key down, all edges up is key up.
+A multi-edge button (`b2h`, `b2v`, `b4`) that acts as one key: any edge down is key down, all edges up is key up once they have stayed up for the release debounce.
+
+**Release debounce**:
+How long every edge of a four-way button must stay up before key up (surface setting `fourWayReleaseDebounce`, default 30 ms, 0 = off). An edge down within it continues the same press. Plain buttons have none.
 
 **BSY / RDY**:
 The panel's flow-control replies: `BSY` asks the client to stop writing, `RDY` says it may resume. The panel has one command queue shared by all clients.

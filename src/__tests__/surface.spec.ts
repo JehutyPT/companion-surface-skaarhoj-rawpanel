@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'vitest'
 import { validateSurfaceLayout, type SurfaceInstance } from '@companion-surface/base'
 import { Harness } from './helpers/harness.js'
-import { waitFor } from './helpers/timing.js'
+import { sleep, waitFor } from './helpers/timing.js'
 import type { FakeSurfaceContext } from './helpers/fake-context.js'
 import { ptzExtremeLayoutHwcs, ptzExtremeTopology, smallTopology } from './fixtures/topologies.js'
 import { layoutOf } from './helpers/layout.js'
@@ -191,6 +191,53 @@ describe('input', () => {
 		expect(keyCalls(context)).toEqual([['keyDown', 'hwc/6']])
 
 		await send('HWC#6.8=Up')
+		// After the release debounce
+		await waitFor(() => keyCalls(context).length >= 2, 2000, 'key up')
+		expect(keyCalls(context)).toEqual([
+			['keyDown', 'hwc/6'],
+			['keyUp', 'hwc/6'],
+		])
+	})
+
+	test('a four-way press that briefly lets go of every edge is one press, by default', async () => {
+		const { context, send } = await openWithInput()
+
+		await send('HWC#6.1=Down', 'HWC#6.1=Up', 'HWC#6.8=Down', 'HWC#6.8=Up')
+		await waitFor(() => keyCalls(context).length >= 2, 2000, 'key up')
+		// Nothing more arrives once the debounce has passed
+		await sleep(100)
+
+		expect(keyCalls(context)).toEqual([
+			['keyDown', 'hwc/6'],
+			['keyUp', 'hwc/6'],
+		])
+	})
+
+	test('with the release debounce set to 0, a four-way release is key up at once', async () => {
+		const { context, send, result } = await openWithInput()
+		await result.surface.updateConfig!({ fourWayReleaseDebounce: 0 })
+
+		await send('HWC#6.1=Down', 'HWC#6.1=Up', 'HWC#6.8=Down', 'HWC#6.8=Up')
+
+		expect(keyCalls(context)).toEqual([
+			['keyDown', 'hwc/6'],
+			['keyUp', 'hwc/6'],
+			['keyDown', 'hwc/6'],
+			['keyUp', 'hwc/6'],
+		])
+	})
+
+	test('a four-way key up waiting on its debounce is sent at once when the link drops', async () => {
+		const { context, send, result, panel } = await openWithInput()
+		await result.surface.updateConfig!({ fourWayReleaseDebounce: 500 })
+		await send('HWC#6.1=Down', 'HWC#6.1=Up')
+
+		panel.dropClients()
+		// That it is sent at once, not at the deadline, is timed in button-keys.spec.ts
+		await waitFor(() => keyCalls(context).length >= 2, 2000, 'key up')
+
+		// Past the 500 ms deadline: the cancelled debounce sends nothing more
+		await sleep(600)
 		expect(keyCalls(context)).toEqual([
 			['keyDown', 'hwc/6'],
 			['keyUp', 'hwc/6'],
@@ -289,6 +336,22 @@ describe('input', () => {
 })
 
 describe('closing', () => {
+	test('a four-way key up waiting on its debounce is sent during close, and nothing after', async () => {
+		harness = new Harness({ topology: smallTopology })
+		const { result, context } = await harness.connectAndOpen()
+		await result.surface.updateConfig!({ fourWayReleaseDebounce: 500 })
+		await harness.panel.sendAndSync('HWC#6.1=Down', 'HWC#6.1=Up')
+
+		await result.surface.close()
+		expect(context.calls).toEqual([
+			['keyDown', 'hwc/6'],
+			['keyUp', 'hwc/6'],
+		])
+
+		await sleep(600)
+		expect(context.calls).toHaveLength(2)
+	})
+
 	test('close can be called twice', async () => {
 		harness = new Harness({ topology: smallTopology })
 		const { result } = await harness.connectAndOpen()

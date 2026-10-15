@@ -30,13 +30,20 @@ If you want some controls somewhere else on Companion's grid, list them in the c
 
 ### Controls
 
-- Buttons are keys. Four-way buttons act as a single key: pressing any edge presses the key.
+- Buttons are keys. Four-way buttons act as a single key: pressing any edge presses the key, and the key is released once every edge has been up for the release debounce (see below).
 - Encoders rotate left and right. Pushing an encoder presses its key.
 - Button LEDs show the button colour. The panel has 64 colours, so colours are approximated. Black turns the LED off.
 - While a button is pressed in Companion, its LED dims, or lights white if the button has no colour.
 - Controls without an LED or display (on the PTZ Extreme: Iris, Focus and the joystick button) work as inputs and show no feedback.
 - Controls with a display show the button text: one line large, or the first two lines small (type `\n` for a line break). Displays show plain ASCII only. At the default size one line fits about 11 characters on the 64×32 button displays and about 19 on the 112×32 knob displays; long text is cut.
 - Joysticks, rockers and faders are input variables, not buttons. See below.
+
+#### Four-way button release debounce
+
+A press near the centre of a four-way button can let go of every edge for a moment and then close another edge. Without a debounce that would be two presses, and the button's actions would run twice.
+
+- **Four-way button release debounce (ms)** (default 30, 0 to 500), in the panel's settings in **Surfaces**: once every edge of a four-way button is up, the key is released only after this time. An edge pressed again within it continues the same press. Pressing is never delayed; only the release is. Plain buttons and encoder pushes are not affected. 0 turns it off and releases at once. Changes apply at once, without reconnecting.
+- If the connection drops, or the surface is closed, while a release is waiting, the key is released at once.
 
 ### Joystick, zoom rocker and faders
 

@@ -1,9 +1,9 @@
 /**
  * Per-surface settings: a link to the PTZ Extreme preset page, the panel's own settings, all opt-in
- * (with the defaults the plugin never sends `SleepTimer=` or `PanelBrightness=`), and the analog
- * tuning (send interval, and per axis a dead zone and saturation). Owns every surface config field
- * (id, label, tooltip, default, range) and reading a config back into typed settings
- * (`parseSurfaceSettings`).
+ * (with the defaults the plugin never sends `SleepTimer=` or `PanelBrightness=`), the four-way button
+ * release debounce, and the analog tuning (send interval, and per axis a dead zone and saturation).
+ * Owns every surface config field (id, label, tooltip, default, range) and reading a config back
+ * into typed settings (`parseSurfaceSettings`).
  */
 import type { SomeCompanionInputField } from '@companion-surface/base'
 import {
@@ -14,6 +14,7 @@ import {
 	type AnalogTuning,
 	type AxisTuning,
 } from './analog.js'
+import { DEFAULT_RELEASE_DEBOUNCE_MS } from './button-keys.js'
 import type { PanelCommand } from './protocol.js'
 import type { AnalogAxis, AnalogMode } from './topology.js'
 
@@ -25,6 +26,7 @@ interface Range {
 /** Accepted values; Companion's number field `min`/`max` are only a UI hint. */
 const ANALOG_INTERVAL_RANGE: Readonly<Range> = { min: 10, max: 1000 }
 const DEADBAND_RANGE: Readonly<Range> = { min: 0, max: 100 }
+const RELEASE_DEBOUNCE_RANGE: Readonly<Range> = { min: 0, max: 500 }
 /** Saturation starts at 100 so it can't be set to swallow most of the travel by mistake. */
 function saturationRange(mode: AnalogMode): Range {
 	return { min: 100, max: fullScale(mode) }
@@ -84,6 +86,15 @@ const panelSettingFields: SomeCompanionInputField[] = [
 		default: false,
 	},
 	{
+		id: 'fourWayReleaseDebounce',
+		type: 'number',
+		label: 'Four-way button release debounce (ms)',
+		tooltip:
+			'How long every edge of a four-way button must stay up before Companion gets key up, in milliseconds. An edge pressed again within this time continues the same press, so a press near the centre that briefly lets go is not a second press. Key down is never delayed; plain buttons are not affected. 0 turns it off.',
+		default: DEFAULT_RELEASE_DEBOUNCE_MS,
+		...RELEASE_DEBOUNCE_RANGE,
+	},
+	{
 		id: 'analogInterval',
 		type: 'number',
 		label: 'Analog send interval (ms)',
@@ -138,15 +149,32 @@ export interface PanelSettings {
 	linkBrightness: boolean
 }
 
+/** How button presses become keys; never sent to the panel */
+export interface KeySettings {
+	/** A four-way button's key up waits this long with every edge up, in ms; 0 sends it at once */
+	releaseDebounceMs: number
+}
+
 /** Everything the surface reads from its config fields */
 export interface SurfaceSettings {
 	panel: PanelSettings
+	keys: KeySettings
 	analog: AnalogTuning
 }
 
 /** The panel settings and the analog tuning from the surface config fields, for a panel with these axes. */
 export function parseSurfaceSettings(config: Record<string, unknown>, axes: readonly AnalogAxis[]): SurfaceSettings {
-	return { panel: parsePanelSettings(config), analog: parseAnalogTuning(config, axes) }
+	return {
+		panel: parsePanelSettings(config),
+		keys: {
+			releaseDebounceMs: parseWholeNumber(
+				config.fourWayReleaseDebounce,
+				DEFAULT_RELEASE_DEBOUNCE_MS,
+				RELEASE_DEBOUNCE_RANGE,
+			),
+		},
+		analog: parseAnalogTuning(config, axes),
+	}
 }
 
 export const DEFAULT_PANEL_SETTINGS: PanelSettings = { sleepTimerMs: undefined, linkBrightness: false }

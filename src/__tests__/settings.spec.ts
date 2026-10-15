@@ -260,6 +260,15 @@ describe('surface settings fields', () => {
 			    "type": "checkbox",
 			  },
 			  {
+			    "default": 30,
+			    "id": "fourWayReleaseDebounce",
+			    "label": "Four-way button release debounce (ms)",
+			    "max": 500,
+			    "min": 0,
+			    "tooltip": "How long every edge of a four-way button must stay up before Companion gets key up, in milliseconds. An edge pressed again within this time continues the same press, so a press near the centre that briefly lets go is not a second press. Key down is never delayed; plain buttons are not affected. 0 turns it off.",
+			    "type": "number",
+			  },
+			  {
 			    "default": 50,
 			    "id": "analogInterval",
 			    "label": "Analog send interval (ms)",
@@ -496,7 +505,25 @@ describe('reading the surface settings', () => {
 			{ enabled: true, deadband: 6, saturation: 500 },
 		],
 	])('%s', (_name, config, panel, intervalMs, axis) => {
-		expect(parseSurfaceSettings(config, [joystick])).toEqual({ panel, analog: { intervalMs, axes: { 60: axis } } })
+		const settings = parseSurfaceSettings(config, [joystick])
+		expect({ panel: settings.panel, analog: settings.analog }).toEqual({
+			panel,
+			analog: { intervalMs, axes: { 60: axis } },
+		})
+	})
+
+	test.each([
+		['missing', {}, 30],
+		['empty string', { fourWayReleaseDebounce: '' }, 30],
+		['not a number', { fourWayReleaseDebounce: 'abc' }, 30],
+		['null', { fourWayReleaseDebounce: null }, 30],
+		['numeric string', { fourWayReleaseDebounce: '80' }, 80],
+		['0 (off)', { fourWayReleaseDebounce: 0 }, 0],
+		['below range', { fourWayReleaseDebounce: -5 }, 0],
+		['above range', { fourWayReleaseDebounce: 9000 }, 500],
+		['a fraction', { fourWayReleaseDebounce: 42.6 }, 43],
+	])('four-way release debounce: %s', (_name, config, releaseDebounceMs) => {
+		expect(parseSurfaceSettings(config, [joystick]).keys).toEqual({ releaseDebounceMs })
 	})
 
 	test('a fader is read on its own scale, 0 to 1000', () => {

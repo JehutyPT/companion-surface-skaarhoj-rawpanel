@@ -53,7 +53,10 @@ function lastSpeeds(lines: string[]): Record<string, number> {
  */
 async function replay(lines: string[], lastValues: Record<string, unknown>): Promise<ContextCall[]> {
 	harness = new Harness({ topology: ptzExtremeTopology })
-	const { context } = await harness.connectAndOpen()
+	const { context, result } = await harness.connectAndOpen()
+	// The capture arrives in one burst, without its real timing, so presses of one four-way button
+	// would fall within the release debounce and merge. The debounce is tested in button-keys.spec.ts.
+	await result.surface.updateConfig!({ fourWayReleaseDebounce: 0 })
 
 	harness.panel.send(...lines)
 	const keys = expectedCalls(lines).length

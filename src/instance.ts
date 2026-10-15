@@ -12,6 +12,7 @@ import {
 	type SurfaceInstance,
 } from '@companion-surface/base'
 import { AnalogSender } from './analog.js'
+import { ButtonKeys } from './button-keys.js'
 import type { PanelLink } from './link.js'
 import { ledCommands, textCommand, type PanelCommand, type PanelEvent } from './protocol.js'
 import { DEFAULT_PANEL_SETTINGS, parseSurfaceSettings, settingCommands, type PanelSettings } from './settings.js'
@@ -34,8 +35,7 @@ export class RawPanelSurface implements SurfaceInstance {
 	readonly #byHwc = new Map<number, LayoutControl>()
 	readonly #byId = new Map<string, LayoutControl>()
 	readonly #state = new Map<string, ControlState>()
-	/** Pressed edges per HWC; plain (edge-less) presses use bit 1 */
-	readonly #held = new Map<number, number>()
+	readonly #keys: ButtonKeys
 	readonly #analog: AnalogSender
 	readonly #axes: readonly AnalogAxis[]
 	#settings: PanelSettings = DEFAULT_PANEL_SETTINGS
@@ -48,7 +48,8 @@ export class RawPanelSurface implements SurfaceInstance {
 	readonly #onInput = (event: PanelEvent): void => this.#handleInput(event)
 	readonly #onResync = (): void => this.#pushAll()
 	readonly #onOffline = (): void => {
-		this.#releaseAll()
+		// Release keys still held, so Companion does not keep them pressed across a link loss.
+		this.#keys.releaseAll()
 		this.#analog.rest()
 	}
 	readonly #onDisconnect = (reason: string): void => {
@@ -70,6 +71,16 @@ export class RawPanelSurface implements SurfaceInstance {
 			this.#state.set(control.controlId, OFF)
 		}
 		this.#axes = layout.axes
+		this.#keys = new ButtonKeys(
+			(hwc) => {
+				const control = this.#byHwc.get(hwc)
+				if (control) this.#context.keyDownById(control.controlId)
+			},
+			(hwc) => {
+				const control = this.#byHwc.get(hwc)
+				if (control) this.#context.keyUpById(control.controlId)
+			},
+		)
 		this.#analog = new AnalogSender(
 			layout.axes,
 			(variableId, value) => this.#context.sendVariableValue(variableId, value),
@@ -89,7 +100,7 @@ export class RawPanelSurface implements SurfaceInstance {
 		if (this.#closed) return
 		this.#closed = true
 		this.#listen(false)
-		this.#held.clear()
+		this.#keys.stop()
 		this.#analog.rest()
 		this.#analog.stop()
 		this.#link.detach(this)
@@ -97,9 +108,10 @@ export class RawPanelSurface implements SurfaceInstance {
 
 	async updateConfig(config: Record<string, any>): Promise<void> {
 		if (this.#closed) return
-		const { panel, analog } = parseSurfaceSettings(config, this.#axes)
+		const { panel, keys, analog } = parseSurfaceSettings(config, this.#axes)
 		const before = settingCommands(this.#settings, this.#brightness).map((c) => c.key)
 		this.#settings = panel
+		this.#keys.releaseDebounceMs = keys.releaseDebounceMs
 		this.#analog.configure(analog)
 		const commands = settingCommands(this.#settings, this.#brightness)
 		// A setting opted out of before its line went out is never sent; one already sent stays (ADR 0004).
@@ -170,15 +182,6 @@ export class RawPanelSurface implements SurfaceInstance {
 		this.#link.write(commands)
 	}
 
-	/** Release keys still held, so Companion does not keep them pressed across a link loss. */
-	#releaseAll(): void {
-		for (const [hwc, mask] of this.#held) {
-			const control = this.#byHwc.get(hwc)
-			if (mask !== 0 && control) this.#context.keyUpById(control.controlId)
-		}
-		this.#held.clear()
-	}
-
 	#handleInput(event: PanelEvent): void {
 		if (!('hwc' in event)) {
 			if (event.type === 'unknown') this.#logger.debug(`Ignoring line: ${event.line.slice(0, 80)}`)
@@ -192,16 +195,10 @@ export class RawPanelSurface implements SurfaceInstance {
 		if (!control) return
 
 		switch (event.type) {
-			case 'button': {
-				// Multi-way buttons are one key: down on the first edge, up when the last edge lifts.
-				const bit = event.edge ?? 1
-				const before = this.#held.get(event.hwc) ?? 0
-				const after = event.down ? before | bit : before & ~bit
-				this.#held.set(event.hwc, after)
-				if (before === 0 && after !== 0) this.#context.keyDownById(control.controlId)
-				else if (before !== 0 && after === 0) this.#context.keyUpById(control.controlId)
+			case 'button':
+				// A four-way button is one key, its key up after the release debounce.
+				this.#keys.button(event.hwc, event.edge, event.down)
 				break
-			}
 			case 'press':
 				this.#context.keyDownUpById(control.controlId)
 				break
