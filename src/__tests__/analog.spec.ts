@@ -135,10 +135,12 @@ describe('analog values', () => {
 
 	test('a move sends its value at once; with the default dead zone the ends stay at ±500', async () => {
 		const { context, panel } = await openSurface()
+		// Past the send interval since the rest values on ready, so nothing is held back
+		await sleep(60)
 		context.calls.length = 0
 
 		panel.send('HWC#60=Speed:-487', 'HWC#58=Speed:500')
-		await sleep(20)
+		await waitFor(() => variables(context.calls).length >= 2, 2000, 'both axis values')
 
 		expect(variables(context.calls)).toEqual([
 			['variable', 'hwc_60', -487],
@@ -158,7 +160,7 @@ describe('analog values', () => {
 		expect(variables(context.calls)).toEqual([])
 
 		panel.send('HWC#5=Abs:1000')
-		await sleep(20)
+		await waitFor(() => variables(context.calls).length >= 1, 2000, 'the fader value')
 
 		expect(variables(context.calls)).toEqual([['variable', 'hwc_5', 1000]])
 	})
